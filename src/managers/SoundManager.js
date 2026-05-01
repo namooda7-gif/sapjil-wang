@@ -234,17 +234,25 @@ export default class SoundManager {
     playDigSound(soilType) {
         if (sfxState.muted) return;
         const cfg = SOIL_DIG_CONFIG[soilType] || SOIL_DIG_CONFIG.dirt;
-        // 톤 (낮은 임팩트)
+        // 메인 톤 (볼륨 +43%: 0.7 → 1.0, 두께 강화)
         tone({
             freq: cfg.freq,
             freqEnd: cfg.freqEnd,
-            duration: cfg.duration,
+            duration: cfg.duration * 1.2,   // 살짝 더 길게
             type: cfg.oscType,
-            volume: 0.7
+            volume: 1.0
         });
-        // 노이즈 임팩트 (찰진 시작)
+        // 베이스 thump 추가 — 한 옥타브 아래 사인파로 묵직한 저음 깔기
+        tone({
+            freq: cfg.freq * 0.5,
+            freqEnd: (cfg.freqEnd ?? cfg.freq) * 0.5,
+            duration: cfg.duration * 1.5,
+            type: 'sine',
+            volume: 0.6
+        });
+        // 노이즈 임팩트 (찰진 시작) — 볼륨 +50% 두께 강화
         if (cfg.noise > 0) {
-            noise({ duration: cfg.noiseDur, volume: cfg.noise });
+            noise({ duration: cfg.noiseDur * 1.3, volume: Math.min(1, cfg.noise * 1.5) });
         }
     }
 
@@ -510,10 +518,10 @@ export default class SoundManager {
             }
         }
 
-        // 웹 폴백 (안드로이드 크롬 등)
+        // 웹 폴백 (안드로이드 크롬 등) — 시간 ~70% 증가로 더 묵직한 진동
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
-            const durMap = { light: 30, medium: 60, heavy: 120 };
-            navigator.vibrate(durMap[intensity] || 30);
+            const durMap = { light: 60, medium: 120, heavy: 220 };
+            navigator.vibrate(durMap[intensity] || 60);
         }
     }
 

@@ -84,9 +84,10 @@ const HOLE_WIDTH_RATIO       = 0.85;     // 화면 폭 대비 구덩이 너비 (
 const HOLE_MIN_HEIGHT        = 80;       // 최소 높이
 const HOLE_MAX_HEIGHT        = 120;      // (현재 미사용)
 const HOLE_Y_OFFSET          = 35;       // 캐릭터 발 아래로 구덩이 바닥이 떨어지는 오프셋
-const HOLE_SURFACE_OVERSHOOT = 40;       // 지표면 위로 살짝 더 끌어올리는 안전 마진
-                                         //   → 새 hole.png는 padding 거의 없으므로 작게 (40)
-                                         //   → 갭 보이면 80, 120으로 조정
+const HOLE_PADDING_FACTOR    = 1.25;     // 비례 보정: 이미지 상단 padding을 깊이에 비례해 가림
+                                         //   → 깊이 깊어져도 갭 안 생김 (근본 해결)
+                                         //   → padding 비율 추정값: 1.25 = 20% padding 가정
+                                         //   → 갭 보이면 1.30, 1.35로. 너무 솟구치면 1.20, 1.15로
 
 // ━━ 흙더미 시스템 (mound_right.png 이미지) ━━
 //   - 오른쪽용 1장만 로드, 왼쪽은 flipX로 좌우 반전 재활용
@@ -108,15 +109,15 @@ const MOUND_LAYER_COLORS = {
     'layer_006': 0x4A4A4A    // 콘크리트
 };
 
-// soilType → 흙 파티클 색상 (layers.js의 soilType과 매칭)
-// dirt 갈색 / sand 모래 / tile 황토타일 / concrete 콘크리트 / rock 돌 / lava 용암
+// soilType → 흙 파티클 색상 팔레트 (3색 변주로 풍부함 + 시각 다양성)
+// 각 발사마다 이 셋 중 랜덤 픽 → 같은 흙도 입자마다 미묘하게 다른 색
 const SOIL_TYPE_COLORS = {
-    dirt:     0x6b4423,
-    sand:     0xd4a574,
-    tile:     0xc89640,
-    concrete: 0x707070,
-    rock:     0x5a5a5a,
-    lava:     0xcc4422
+    dirt:     [0x6b4423, 0x8b5a2b, 0x4a2f1a],   // 갈색 톤 3종
+    sand:     [0xd4a574, 0xe8c190, 0xc09060],   // 모래 톤
+    tile:     [0xc89640, 0xe0b060, 0xa07020],   // 황토타일
+    concrete: [0x707070, 0x909090, 0x505050],   // 콘크리트 회색
+    rock:     [0x5a5a5a, 0x7a7a7a, 0x3a3a3a],   // 돌 짙은 회색
+    lava:     [0xcc4422, 0xff6633, 0x992200]    // 용암 빨강~주황
 };
 
 export default class GameScene extends Phaser.Scene {
@@ -138,9 +139,9 @@ export default class GameScene extends Phaser.Scene {
         this.digRevertTimer = null;          // dig 텍스처 → 베이스 상태 복귀 타이머
         this.characterId = 'char_001';       // 현재 캐릭터 ID (추후 캐릭터 선택 시 동적)
 
-        // 흙 파티클 / 흙더미 색상 (loadLayer에서 갱신)
-        this.currentDirtTint = 0x6b4423;
-        this.currentMoundColor = 0x4a2f1a;
+        // 흙 파티클 색상 팔레트 (3색, loadLayer에서 soilType 기반 갱신) / 흙더미 단색
+        this.currentDirtPalette = SOIL_TYPE_COLORS.dirt;  // [기본, 밝게, 어둡게]
+        this.currentMoundColor  = 0x4a2f1a;
 
         // 캐릭터 좌우 삽질 모션 (탭 시 왼쪽으로 이동 후 복귀)
         this.charBaseX = null;       // 정지 위치 X (create에서 설정)
@@ -301,7 +302,11 @@ export default class GameScene extends Phaser.Scene {
             scale: { min: 1.14, max: 2.14 },                   // 16~30px (이전 8~15의 2배)
             alpha: { start: 1, end: 0 },
             rotate: { min: 0, max: 360 },
-            tint: { onEmit: () => this.currentDirtTint },
+            // 매 입자마다 팔레트에서 랜덤 픽 → 같은 흙도 미묘한 색 변주로 풍부함
+            tint: { onEmit: () => {
+                const pal = this.currentDirtPalette;
+                return pal[(Math.random() * pal.length) | 0];
+            }},
             quantity: 0,
             emitting: false
         };
@@ -490,12 +495,12 @@ export default class GameScene extends Phaser.Scene {
             this.bgImage.setVisible(false);
         }
 
-        // 흙벽/흙더미 색상 = 레이어 id별 명시 매핑 (사장님 명세)
-        // 파티클도 동일 색 (시각적 통일감)
+        // 흙더미 색상 = 레이어 id별 명시 매핑
         this.currentMoundColor = MOUND_LAYER_COLORS[layer.id]
             || layer.groundColor
             || this.darkenColor(layer.bgColor, 0.65);
-        this.currentDirtTint = this.currentMoundColor;
+        // 파티클은 soilType 기반 3색 팔레트 (시각 다양성)
+        this.currentDirtPalette = SOIL_TYPE_COLORS[layer.soilType] || SOIL_TYPE_COLORS.dirt;
 
         // 흙더미 이미지 tint 적용 + alpha 복원 (clear 디졸브 후 재진입 대응)
         if (this.leftMound) {
@@ -570,8 +575,9 @@ export default class GameScene extends Phaser.Scene {
         // origin (0.5, 1)이라 character.y가 발 위치 = 삽이 흙을 파는 지점
         const emitX = this.charBaseX;
         const emitY = this.character.y;
-        if (this.dirtEmitter)       this.dirtEmitter.explode(50, emitX, emitY);
-        if (this.dirtEmitterSquare) this.dirtEmitterSquare.explode(25, emitX, emitY);
+        // 발사량 2배 (50→100 / 25→50) — 더 폭발적인 흙 분출감
+        if (this.dirtEmitter)       this.dirtEmitter.explode(100, emitX, emitY);
+        if (this.dirtEmitterSquare) this.dirtEmitterSquare.explode(50,  emitX, emitY);
 
         // 충격파 원형 이펙트 (흰색 반투명 링이 빠르게 퍼졌다 사라짐)
         this.playTapShockwave(emitX, emitY);
@@ -630,9 +636,9 @@ export default class GameScene extends Phaser.Scene {
             this.soundManager.playComboSound(this.combo);
         }
 
-        // 사운드 + 햅틱 (soilType 기반)
+        // 사운드 + 햅틱 (soilType 기반) — 매 탭에 medium 진동으로 손맛 강화
         this.soundManager.playDigSound(this.layerData.soilType);
-        this.soundManager.triggerHaptic('light');
+        this.soundManager.triggerHaptic('medium');
 
         // 코믹 이벤트 트리거 체크
         this.checkComicEvent();
@@ -1281,10 +1287,10 @@ export default class GameScene extends Phaser.Scene {
         // 구덩이 바닥 = 캐릭터 발 + HOLE_Y_OFFSET (살짝 아래)
         const holeBottomY = this.character.y + HOLE_Y_OFFSET;
 
-        // 높이 = (바닥 - 지표면) + OVERSHOOT
-        // OVERSHOOT만큼 지표면 위로 더 늘려 그림 → 이미지 자체 상단 padding 보정
+        // 높이 = (바닥 - 지표면) × PADDING_FACTOR
+        // 비례 보정: 깊이 깊어져도 이미지 padding이 같은 비율로 가려지므로 갭 절대 안 생김
         // origin (0.5, 1.0)이라 displayHeight를 키우면 바닥은 holeBottomY 고정 + 위로 자람
-        const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) + HOLE_SURFACE_OVERSHOOT);
+        const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) * HOLE_PADDING_FACTOR);
 
         this.holeImage.setDisplaySize(w, h);
         this.holeImage.y = holeBottomY;
