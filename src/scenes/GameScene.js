@@ -236,8 +236,12 @@ export default class GameScene extends Phaser.Scene {
         // 위치는 character.x / character.y(=발) 기준
         // 흙더미 X 오프셋은 drawMounds()에서 매 프레임 동적 계산 (현재 스케일 기반)
 
-        // 구덩이 터널 그래픽스 (깊이감 연출의 핵심) — 배경 위, hole 아래(depth 3)
-        // 지표면부터 구덩이 꼭대기까지 반투명 어두운 기둥을 그려 "파고 들어가는" 착시
+        // 지하 마스킹 오버레이 (depth 1, 배경 위 / shaft·hole 아래)
+        // TileSprite 텍스처가 wrap-around되어 지상 부분이 화면 아래쪽에 보일 때 단색으로 덮음
+        // → "거의 다 팠을 때 화면에 지상 이미지가 다시 나타나는" 현상 방지
+        this.undergroundOverlay = this.add.graphics().setDepth(1);
+
+        // 구덩이 터널 그래픽스 (현재 미사용 - 만약을 위해 유지)
         this.shaftGraphics = this.add.graphics().setDepth(3);
 
         // 구덩이 바닥 (hole.jpeg, depth 4)
@@ -1307,6 +1311,44 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 지하 마스킹 오버레이 — TileSprite wrap-around 영역을 단색으로 덮음
+    //
+    // TileSprite는 텍스처가 끝나면 자동으로 wrap돼서 처음부터 다시 보여줌.
+    // 깊이 많이 팠을 때(tilePositionY 큼) 화면 아래쪽이 wrap돼서 지상 부분이
+    // 다시 나타나는 현상 발생 → 이 영역을 underground 단색으로 덮어 차단.
+    //
+    // wrap 발생 화면 Y = (textureHeight - tilePositionY) × tileScaleY
+    // → 이 위치부터 화면 바닥까지 단색 사각형으로 덮음
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    drawUndergroundOverlay() {
+        if (!this.undergroundOverlay || !this.bgImage) return;
+        this.undergroundOverlay.clear();
+        if (this.bgImage.type !== 'TileSprite') return;
+
+        const tex = this.bgImage.texture && this.bgImage.texture.getSourceImage
+            ? this.bgImage.texture.getSourceImage()
+            : null;
+        const texH = (tex && tex.height) ? tex.height : 2580;
+        const tileScale = this.bgImage.tileScaleY || 1;
+        const tilePos   = this.bgImage.tilePositionY || 0;
+
+        // wrap이 발생하는 화면 Y 좌표
+        const wrapScreenY = (texH - tilePos) * tileScale;
+
+        const screenW = this.cameras.main.width;
+        const screenH = this.cameras.main.height;
+
+        // wrap이 화면 바깥(아래)이면 덮을 필요 없음
+        if (wrapScreenY >= screenH) return;
+
+        // 덮을 영역: wrap 라인부터 화면 바닥까지
+        const top = Math.max(0, wrapScreenY);
+        const undergroundColor = this.darkenColor(this.currentMoundColor || 0x4a2f1a, 0.7);
+        this.undergroundOverlay.fillStyle(undergroundColor, 1);
+        this.undergroundOverlay.fillRect(0, top, screenW, screenH - top);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 흙더미 갱신 (mound_right.png 이미지 기반)
     //   - digCount에 따라 scale만 조정
     //   - 색상은 setTint로 레이어 색 반영 (loadLayer에서 적용)
@@ -1392,6 +1434,7 @@ export default class GameScene extends Phaser.Scene {
     update() {
         this.drawHole();
         this.drawMounds();
+        this.drawUndergroundOverlay();
 
         // 파티클이 흙더미 bbox 안에 들어오면 즉시 사라짐 (alpha 0 처리)
         // 원/사각 두 emitter 모두 검사
