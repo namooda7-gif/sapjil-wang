@@ -84,9 +84,9 @@ const HOLE_WIDTH_RATIO       = 0.85;     // 화면 폭 대비 구덩이 너비 (
 const HOLE_MIN_HEIGHT        = 80;       // 최소 높이
 const HOLE_MAX_HEIGHT        = 120;      // (현재 미사용)
 const HOLE_Y_OFFSET          = 35;       // 캐릭터 발 아래로 구덩이 바닥이 떨어지는 오프셋
-const HOLE_SURFACE_OVERSHOOT = 200;      // 지표면 위로 더 끌어올리는 보정값 (120 → 200: 갭 더 확실히 메움)
-                                         //   → hole.jpeg 상단 투명 영역(이미지 자체 padding) 보정
-                                         //   → 여전히 갭 보이면 250, 300으로 키우세요
+const HOLE_SURFACE_OVERSHOOT = 40;       // 지표면 위로 살짝 더 끌어올리는 안전 마진
+                                         //   → 새 hole.png는 padding 거의 없으므로 작게 (40)
+                                         //   → 갭 보이면 80, 120으로 조정
 
 // ━━ 흙더미 시스템 (mound_right.png 이미지) ━━
 //   - 오른쪽용 1장만 로드, 왼쪽은 flipX로 좌우 반전 재활용

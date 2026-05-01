@@ -45,7 +45,7 @@ export default class BootScene extends Phaser.Scene {
         this.load.image('mound_right', 'assets/mound_right.png');
 
         // ━━━ 구덩이 이미지 (U자형 단면 - 캐릭터 발 아래 배치) ━━━
-        this.load.image('hole', 'assets/hole.jpeg');
+        this.load.image('hole', 'assets/hole.png');
 
         // ━━━ 레이어 배경 이미지 (한국 레이어 6종, 720×2580 jpg) ━━━
         // 키 규칙: ${layer.id}_bg → 'layer_001_bg' ... 'layer_006_bg'
