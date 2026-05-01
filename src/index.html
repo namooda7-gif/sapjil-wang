@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- iOS PWA에서 상태바 투명 처리 → 풀스크린 시 더 자연스러움 -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="theme-color" content="#8B4513" />
+    <title>삽질왕 - Just Dig It</title>
+    <style>
+        /* 모바일 게임 기본 스타일 - 스크롤/줌/선택 차단 */
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-user-select: none;
+            user-select: none;
+            -webkit-touch-callout: none;
+        }
+
+        /* body / 컨테이너 배경 검정 → letterbox 영역이 검정으로 통일되어 갈색 바 사라짐 */
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100vh;           /* 폴백: 구버전 안드로이드 브라우저 */
+            height: 100dvh;          /* 모던: 주소창 포함 실제 가시 viewport 높이 */
+            overflow: hidden;
+            background: #000000;
+            touch-action: manipulation;
+            overscroll-behavior: none;
+            position: fixed;         /* iOS 사파리 바운스 차단 + 고정 풀스크린 */
+            inset: 0;
+        }
+
+        /* 캔버스 컨테이너 - Phaser가 이 div의 width/height를 읽어 캔버스 크기 결정.
+           센터링은 Phaser의 Scale.CENTER_BOTH가 담당하므로 flex 등 별도 레이아웃 안 씀.
+           position: relative → CENTER_BOTH가 추가하는 absolute 마진 계산의 기준점이 됨. */
+        #game-container {
+            width: 100%;
+            height: 100vh;           /* 폴백 */
+            height: 100dvh;          /* 모던 - 실제 가시 영역 */
+            overflow: hidden;
+            background: #000000;
+            position: relative;
+        }
+
+        /* Phaser 캔버스 - 블록 표시(inline baseline 갭 제거) + 크기/위치는 Phaser가 관리 */
+        #game-container canvas {
+            display: block;
+        }
+
+        /* 로딩 화면 (Phaser 부팅 전) */
+        #loading {
+            position: fixed;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            background: #8B4513;
+            color: #fff;
+            font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', sans-serif;
+            z-index: 999;
+        }
+
+        #loading h1 {
+            font-size: 2.5rem;
+            margin-bottom: 1rem;
+            text-shadow: 2px 2px 0 #5a2d0c;
+        }
+
+        #loading p {
+            font-size: 1rem;
+            opacity: 0.8;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <div id="loading">
+        <h1>삽질왕</h1>
+        <p>로딩 중...</p>
+    </div>
+    <div id="game-container"></div>
+
+    <script type="module" src="./main.js"></script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+  "appId": "com.namooda7.sapjilwang",
+  "appName": "삽질왕",
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https"
+  },
+  "plugins": {
+    "SplashScreen": {
+      "launchShowDuration": 2000,
+      "backgroundColor": "#8B4513",
+      "androidSplashResourceName": "splash",
+      "showSpinner": false
+    },
+    "Haptics": {}
+  },
+  "android": {
+    "allowMixedContent": false,
+    "captureInput": true,
+    "webContentsDebuggingEnabled": false
+  }
+}
