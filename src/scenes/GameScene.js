@@ -120,6 +120,92 @@ const SOIL_TYPE_COLORS = {
     lava:     [0xcc4422, 0xff6633, 0x992200]    // 용암 빨강~주황
 };
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 삽 레벨별 이펙트 차별화 (사용자 스펙)
+//   shovelLevel 0: 나무삽  → 파티클 25개 / 햅틱 light
+//   shovelLevel 1: 철삽    → 파티클 50개 / 햅틱 medium
+//   shovelLevel 2: 강철삽  → 파티클 75개 / 햅틱 heavy
+//   shovelLevel 3+: 미스릴 → 파티클 100개 (반짝임 효과는 후속 업데이트)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const SHOVEL_PARTICLE_COUNTS  = [25, 50, 75, 100];                 // 원형 파티클
+const SHOVEL_PARTICLE_SQUARE  = [12, 25, 38, 50];                  // 사각 파티클 (1/2 비율)
+const SHOVEL_HAPTIC_INTENSITY = ['light', 'medium', 'heavy', 'heavy'];
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 랜덤 장애물 시스템 (사용자 스펙)
+//   - 20탭마다 10% 확률로 등장
+//   - 등장 중에는 일반 dig 차단, 장애물 전용 탭으로 카운트
+//   - 부수면 보물 확률 +20% (10초간 부스트)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const OBSTACLE_TAP_INTERVAL  = 20;        // 매 N탭마다 등장 체크
+const OBSTACLE_SPAWN_CHANCE  = 0.10;      // 등장 확률 10%
+const OBSTACLE_BOOST_MS      = 10000;     // 보물 확률 부스트 지속 (10초)
+const OBSTACLE_BOOST_AMOUNT  = 0.20;      // +20% 추가 확률
+const OBSTACLE_TYPES = {
+    rock: { emoji: '🪨', name: '단단한 바위',  tapsRequired: 3, tint: 0x808080 },
+    bone: { emoji: '🦴', name: '거대한 뼈',    tapsRequired: 5, tint: 0xf0e6c8 },
+    root: { emoji: '🪵', name: '굵은 뿌리',    tapsRequired: 4, tint: 0x6b4423 }
+};
+const OBSTACLE_KEYS = Object.keys(OBSTACLE_TYPES);
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 캐릭터 혼잣말 시스템 (사용자 스펙)
+//   - 50탭마다 일반 라인 중 랜덤 노출
+//   - 콤보 도달 시 콤보 라인 우선 노출 (10/30/50/100)
+//   - NPC 코믹 이벤트 발생 시 1초 후 캐릭터 반응 (NPC_REACTIONS)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const MONOLOGUE_INTERVAL = 50;            // 매 N탭마다 일반 혼잣말
+const MONOLOGUE_BUBBLE_MS = 2000;         // 말풍선 유지 시간
+const MONOLOGUE_LINES_GENERAL = [
+    '아 허리야...',
+    '이게 뭐가 나오려나...',
+    '퇴근하고 싶다...',
+    '사장님 몰래 파는 중...',
+    '왜 하고 있는 거지...'
+];
+const MONOLOGUE_LINES_COMBO = {
+    10:  '나 잘하고 있는 거지?',
+    30:  '삽질왕이 될 것 같아!',
+    50:  '멈출 수가 없어!!',
+    100: '나는 삽질왕이다!!!'
+};
+// soundType(layers.js) → 캐릭터 반응 라인
+const NPC_REACTIONS = {
+    foreman:     '아 아무것도 안 했어요!',
+    pe_teacher:  '다음엔 안 그럴게요!',
+    security:    '죄송합니다 죄송합니다!',
+    sauna_owner: '아이고 사장님!',
+    military:    '충성! 열심히 하겠습니다!',
+    fans:        '저 팬이에요 진짜로요!'
+};
+const BURNOUT_LINE     = '더 이상 못 파겠다...';
+const COLLAPSE_LINE    = '쓰러질 것 같아...';
+const JACKPOT_LINE     = '대박!!!';
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SOUL-OUT 게이지 시스템 (사용자 스펙)
+//   - 시작 100, 탭마다 -0.5
+//   - 시간당 회복 (초당 +2.0) → 가만히 있으면 ~50초에 0→100
+//   - 단계: 100~70 열정(combo) / 70~40 보통(dig) / 40~10 지침(idle+👻) / 10~0 번아웃(👻×3+흔들림+효율-50%)
+//   - 0% 도달 시: 5초간 dig 차단 → 자동 20%로 회복
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const SOUL_MAX               = 100;
+const SOUL_DRAIN_PER_TAP     = 0.5;
+const SOUL_REGEN_PER_SECOND  = 2.0;       // 가만 두면 초당 +2 회복
+const SOUL_BURNOUT_PAUSE_MS  = 5000;      // 0% 도달 시 멈춤 시간
+const SOUL_BURNOUT_RECOVER   = 20;        // 멈춤 후 회복되는 게이지 값
+const SOUL_BURNOUT_EFFICIENCY = 0.5;      // 10% 미만 시 코인 효율 (×0.5)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 보물 발견 강화 (사용자 스펙)
+//   - 보물 출현 직전 0.3초 황금빛 반짝 + 두근두근 (heartbeat)
+//   - 발견 순간 surprise 텍스처 + 0.5초 슬로우모션 (timeScale)
+//   - legendary는 '대박!!!' 말풍선 + 승리 멜로디 + 화면 가장자리 유령 10마리
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const TREASURE_FORESHADOW_MS = 300;
+const JACKPOT_GHOST_COUNT    = 10;
+const JACKPOT_GHOST_DURATION = 3000;
+
 export default class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
@@ -137,6 +223,8 @@ export default class GameScene extends Phaser.Scene {
 
         this.clearActive = false;            // 레이어 클리어 연출 진행 중 (입력 차단 + clear 텍스처)
         this.digRevertTimer = null;          // dig 텍스처 → 베이스 상태 복귀 타이머
+        this.panicRevertTimer = null;        // panic 텍스처 → 베이스 상태 복귀 타이머 (3초)
+        this.surpriseRevertTimer = null;     // surprise 텍스처 → 베이스 상태 복귀 타이머 (보물·장애물 등장)
         this.characterId = 'char_001';       // 현재 캐릭터 ID (추후 캐릭터 선택 시 동적)
 
         // 흙 파티클 색상 팔레트 (3색, loadLayer에서 soilType 기반 갱신) / 흙더미 단색
@@ -160,6 +248,29 @@ export default class GameScene extends Phaser.Scene {
         // 깊이 누적 (탭마다 +10cm) - 세션 동안만 유지
         this.totalDepthCm = 0;
         this.depthText = null;                // create()에서 생성
+
+        // ━━ SOUL-OUT 게이지 ━━
+        this.soulGauge          = SOUL_MAX;   // 0~100
+        this.soulRegenAccum     = 0;          // delta 누적 (초당 SOUL_REGEN_PER_SECOND 적용)
+        this.lastSoulUpdateTime = 0;          // 회복 보간용 (ms)
+        this.burnoutActive      = false;      // 번아웃 중이면 dig 차단
+        this.burnoutEndTime     = 0;          // 번아웃 종료 ms (시각 비교)
+        this.soulGhostEmojis    = [];         // 입에서 떠다니는 👻 텍스트들 (최대 3개)
+        this.soulShakeTween     = null;       // 번아웃 캐릭터 흔들림 트윈
+
+        // ━━ 랜덤 장애물 ━━
+        this.tapsSinceLastObstacleCheck = 0;  // 매 OBSTACLE_TAP_INTERVAL 탭마다 확률 굴림
+        this.currentObstacle    = null;       // { type, tapsLeft, container, emojiText, hpBar, hpBarBg }
+        this.treasureBoostUntil = 0;          // 장애물 깬 후 추가 보물 확률 부스트 만료 ms
+
+        // ━━ 캐릭터 혼잣말 ━━
+        this.tapsSinceLastMonologue = 0;
+        this.characterBubble = null;          // 캐릭터 머리 위 말풍선 컨테이너
+        this.firedComboMonologues = new Set(); // 콤보 라인 1회씩만 (10/30/50/100)
+
+        // ━━ 보물 강화 ━━
+        this.foreshadowGfx = null;            // 발견 직전 황금빛 반짝 graphics
+        this.foreshadowTween = null;
     }
 
     create() {
@@ -345,6 +456,35 @@ export default class GameScene extends Phaser.Scene {
             stroke: '#000', strokeThickness: 2
         }).setOrigin(0, 1).setDepth(20);
 
+        // ━━━ SOUL-OUT 게이지 (좌측 세로바) ━━━
+        // 위치: x=14, y=170 (재화 HUD 아래) ~ height-220 (depthText 위)
+        // 폭 12, depth 20 = HUD 레벨
+        const SOUL_X = 14;
+        const SOUL_Y = 170;
+        const SOUL_W = 12;
+        const SOUL_H = Math.max(120, height * 0.28);
+        // 배경 (검은 테두리)
+        this.soulGaugeBg = this.add.rectangle(SOUL_X, SOUL_Y, SOUL_W, SOUL_H, 0x000000, 0.55)
+            .setOrigin(0, 0).setDepth(20).setStrokeStyle(2, 0xffffff, 0.7);
+        // 채우기 (위에서 아래로 줄어들도록 origin (0,1) → 아래 기준 위로 자람)
+        this.soulGaugeFill = this.add.rectangle(SOUL_X, SOUL_Y + SOUL_H, SOUL_W, SOUL_H, 0xff5577, 1)
+            .setOrigin(0, 1).setDepth(21);
+        // 위쪽 영혼 아이콘 라벨 (👻)
+        this.soulGaugeLabel = this.add.text(SOUL_X + SOUL_W / 2, SOUL_Y - 4, '👻', {
+            font: '22px sans-serif'
+        }).setOrigin(0.5, 1).setDepth(22);
+        // 백분율 텍스트 (게이지 아래)
+        this.soulGaugeText = this.add.text(SOUL_X + SOUL_W / 2, SOUL_Y + SOUL_H + 4, '100%', {
+            font: 'bold 14px sans-serif', color: '#ffffff',
+            stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5, 0).setDepth(22);
+        // 보관 (resize용)
+        this._soulGaugeRect = { x: SOUL_X, y: SOUL_Y, w: SOUL_W, h: SOUL_H };
+
+        // ━━━ 보물 발견 직전 황금빛 foreshadow graphics ━━━
+        // 캐릭터 발 주변에 잠시 황금빛 반짝임 표시 (depth 9 = 캐릭터 바로 아래)
+        this.foreshadowGfx = this.add.graphics().setDepth(9).setAlpha(0);
+
         // 메뉴 복귀 버튼 (히트 영역 충분히 크게 + depth 20 = HUD 레벨)
         // resize 핸들러에서 위치 갱신용으로 인스턴스 필드에 저장
         // y는 height - HUD_BOTTOM_MARGIN → 시스템 UI 영역 회피
@@ -439,6 +579,21 @@ export default class GameScene extends Phaser.Scene {
         // 캐릭터 라벨 위치 재동기화 (character.y는 안 바뀌지만 width/2 기준 X는 바뀔 수 있음)
         if (this.characterLabel && this.character) {
             this.characterLabel.setPosition(this.character.x, this.character.y + 20);
+        }
+
+        // SOUL-OUT 게이지 (높이만 화면 비율에 맞춰 갱신, X는 좌측 고정)
+        if (this.soulGaugeBg && this._soulGaugeRect) {
+            const newH = Math.max(120, height * 0.28);
+            this._soulGaugeRect.h = newH;
+            this.soulGaugeBg.setSize(this._soulGaugeRect.w, newH);
+            this.soulGaugeFill.setSize(this._soulGaugeRect.w, newH);
+            // origin (0,1)이라 y는 게이지 바닥 위치
+            this.soulGaugeFill.y = this._soulGaugeRect.y + newH;
+            this.soulGaugeText.setPosition(
+                this._soulGaugeRect.x + this._soulGaugeRect.w / 2,
+                this._soulGaugeRect.y + newH + 4
+            );
+            this.drawSoulGauge();   // 사이즈 변경 후 즉시 재계산
         }
     }
 
@@ -557,6 +712,15 @@ export default class GameScene extends Phaser.Scene {
         if (this.clearActive) return;
         if (!this.layerData) return;
 
+        // ━━ 번아웃 중이면 dig 차단 (5초 자동 정지) ━━
+        if (this.burnoutActive) return;
+
+        // ━━ 장애물 활성 중이면 → 일반 dig 대신 장애물에 탭 카운트 ━━
+        if (this.currentObstacle) {
+            this.hitObstacle(x, y);
+            return;
+        }
+
         const now = this.time.now;
 
         // 콤보 판정
@@ -564,10 +728,13 @@ export default class GameScene extends Phaser.Scene {
             this.combo += 1;
         } else {
             this.combo = 1;
+            this.firedComboMonologues.clear();   // 콤보 끊기면 콤보 라인 다시 노출 가능
         }
         this.lastDigTime = now;
 
         this.digCount += 1;
+        this.tapsSinceLastObstacleCheck += 1;
+        this.tapsSinceLastMonologue     += 1;
 
         // 캐릭터: dig 텍스처로 즉시 전환 → 0.3초 후 베이스 상태(idle/combo)로 복귀
         this.playDigAnimation();
@@ -575,19 +742,28 @@ export default class GameScene extends Phaser.Scene {
         // 캐릭터 좌측 15px 이동 후 복귀 (삽질 모션)
         this.playDigShovelMotion();
 
-        // 흙 파티클 분출 - 원 50개 + 사각 25개 = 총 75개 (이전 25의 3배)
+        // ━━ 흙 파티클 분출 (삽 레벨에 따라 개수 차등) ━━
+        // 사용자 스펙: 나무25 / 철50 / 강철75 / 미스릴100
+        const lvl = Math.min(this.currencyManager.shovelLevel || 0, SHOVEL_PARTICLE_COUNTS.length - 1);
+        const circleCount = SHOVEL_PARTICLE_COUNTS[lvl];
+        const squareCount = SHOVEL_PARTICLE_SQUARE[lvl];
         // origin (0.5, 1)이라 character.y가 발 위치 = 삽이 흙을 파는 지점
         const emitX = this.charBaseX;
         const emitY = this.character.y;
-        // 발사량 2배 (50→100 / 25→50) — 더 폭발적인 흙 분출감
-        if (this.dirtEmitter)       this.dirtEmitter.explode(100, emitX, emitY);
-        if (this.dirtEmitterSquare) this.dirtEmitterSquare.explode(50,  emitX, emitY);
+        if (this.dirtEmitter)       this.dirtEmitter.explode(circleCount, emitX, emitY);
+        if (this.dirtEmitterSquare) this.dirtEmitterSquare.explode(squareCount, emitX, emitY);
 
         // 충격파 원형 이펙트 (흰색 반투명 링이 빠르게 퍼졌다 사라짐)
         this.playTapShockwave(emitX, emitY);
 
-        // 탭 카메라 흔들림 (살짝 - 매 탭마다 부담되지 않을 정도)
-        this.cameras.main.shake(60, 0.005);
+        // ━━ 카메라 셰이크 - hard soil(돌/타일)이면 2배 + 흰색 플래시 ━━
+        const isHard = this.soundManager.isHardSoil(this.layerData.soilType);
+        if (isHard) {
+            this.cameras.main.shake(120, 0.012);     // 일반의 ~2배
+            this.cameras.main.flash(120, 255, 255, 255, false);  // 흰색 플래시 (손저린 연출)
+        } else {
+            this.cameras.main.shake(60, 0.005);
+        }
 
         // 배경 위로 스크롤 (탭마다 2~3px, 콤보 10+ 시 4~5px) - 파고 내려가는 느낌
         if (this.bgImage && this.bgImage.type === 'TileSprite') {
@@ -603,12 +779,12 @@ export default class GameScene extends Phaser.Scene {
             this.depthText.setText(`지하 ${(this.totalDepthCm / 100).toFixed(1)}m`);
         }
 
-        // 흙더미는 매 프레임 update()에서 redraw (digCount 기반 fraction 사용)
-        // → 별도 trigger 불필요
-
-        // 코인 획득 (기본 1~5 + 삽 레벨 보너스 + 콤보 10+ 시 1.5배)
+        // ━━ 코인 획득 ━━
+        // 기본 1~5 + 삽 레벨 보너스 + 콤보 10+ 시 1.5배
+        // SOUL 10% 미만이면 효율 ×0.5 ('번아웃 직전 지침')
         let coinGain = Phaser.Math.Between(1, 5) + this.currencyManager.getShovelBonus();
         if (this.combo >= 10) coinGain = Math.floor(coinGain * 1.5);
+        if (this.soulGauge < 10) coinGain = Math.max(1, Math.floor(coinGain * SOUL_BURNOUT_EFFICIENCY));
         this.currencyManager.addCoin(coinGain);
         // 코인 획득 사운드 (매 탭마다 살짝 다른 피치)
         this.soundManager.playCoinSound();
@@ -640,16 +816,53 @@ export default class GameScene extends Phaser.Scene {
             this.soundManager.playComboSound(this.combo);
         }
 
-        // 사운드 + 햅틱 (soilType 기반) — 매 탭에 medium 진동으로 손맛 강화
+        // ━━ 콤보 단계별 캐릭터 혼잣말 (10/30/50/100, 한 번씩만) ━━
+        if (MONOLOGUE_LINES_COMBO[this.combo] && !this.firedComboMonologues.has(this.combo)) {
+            this.firedComboMonologues.add(this.combo);
+            this.showCharacterMonologue(MONOLOGUE_LINES_COMBO[this.combo]);
+        }
+
+        // ━━ 사운드 + 햅틱 (soilType 기반) ━━
+        // hard(돌/타일)는 300ms 강진동(손저림), 그 외는 삽 레벨별 차등
         this.soundManager.playDigSound(this.layerData.soilType);
-        this.soundManager.triggerHaptic('medium');
+        if (isHard) {
+            this.soundManager.triggerHardSoilHaptic();
+        } else {
+            this.soundManager.triggerHaptic(SHOVEL_HAPTIC_INTENSITY[lvl]);
+        }
 
         // 코믹 이벤트 트리거 체크
         this.checkComicEvent();
 
-        // 보물 출현 체크 (5% 확률)
-        if (Math.random() < TREASURE_BASE_RATE) {
-            this.spawnTreasure();
+        // ━━ SOUL 게이지 감소 (탭당 -0.5%) ━━
+        this.drainSoul(SOUL_DRAIN_PER_TAP);
+
+        // ━━ 50탭마다 일반 혼잣말 (콤보 라인이 이미 떴으면 스킵) ━━
+        if (this.tapsSinceLastMonologue >= MONOLOGUE_INTERVAL && !this.characterBubble) {
+            this.tapsSinceLastMonologue = 0;
+            const line = MONOLOGUE_LINES_GENERAL[
+                Math.floor(Math.random() * MONOLOGUE_LINES_GENERAL.length)
+            ];
+            this.showCharacterMonologue(line);
+        }
+
+        // ━━ 20탭마다 장애물 등장 체크 (10% 확률) ━━
+        if (this.tapsSinceLastObstacleCheck >= OBSTACLE_TAP_INTERVAL) {
+            this.tapsSinceLastObstacleCheck = 0;
+            if (Math.random() < OBSTACLE_SPAWN_CHANCE) {
+                this.spawnObstacle();
+            }
+        }
+
+        // ━━ 보물 출현 체크 ━━
+        // 기본 5% + 장애물 부순 직후 부스트(+20%) 시간이면 추가
+        let treasureRate = TREASURE_BASE_RATE;
+        if (this.time.now < this.treasureBoostUntil) {
+            treasureRate += OBSTACLE_BOOST_AMOUNT;
+        }
+        if (Math.random() < treasureRate) {
+            // 직전 0.3초 황금빛 + 두근두근 → 그 후 spawnTreasure
+            this.playTreasureForeshadow(() => this.spawnTreasure());
         }
 
         // 레이어 클리어 체크
@@ -748,6 +961,25 @@ export default class GameScene extends Phaser.Scene {
                 });
             }
         });
+
+        // ━━ NPC 등장 1초 후 캐릭터 반응 (NPC_REACTIONS 매핑 + panic 표정) ━━
+        // soundType이 매핑 키가 됨 (foreman/pe_teacher/security/sauna_owner/military/fans)
+        // panic 텍스처를 3초간 표시 (revertCharacterToBase 자동 차단)
+        const reaction = NPC_REACTIONS[event.soundType];
+        if (reaction) {
+            this.time.delayedCall(1000, () => {
+                this.showCharacterMonologue(reaction);
+
+                // 진행 중인 dig transient 정리 후 panic 표정으로 전환
+                this.cancelDigRevert();
+                this.cancelPanicRevert();
+                this.setCharacterState('panic');
+                this.panicRevertTimer = this.time.delayedCall(3000, () => {
+                    this.panicRevertTimer = null;
+                    this.revertCharacterToBase();
+                });
+            });
+        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -788,9 +1020,14 @@ export default class GameScene extends Phaser.Scene {
         // (treasurePopupActive 안 건드림 → 캐릭터 상태/입력 그대로 유지)
         this.flyTreasureToHUD(treasure, rarityKey);
 
-        // legendary 등급은 화면 전체 황금빛 플래시 (300ms)
+        // 모든 등급 공통: 보물이 발 근처에서 튀어나오는 동안 0.7초 surprise 표정
+        //   (legendary는 아래 playJackpotEffect가 더 긴 surprise로 덮음)
+        this.triggerSurprise(700);
+
+        // legendary 등급은 "대박!!!" 풀 연출 (surprise + 슬로우 + 멜로디 + 유령 댄스)
         if (rarityKey === 'legendary') {
             this.cameras.main.flash(300, 255, 215, 0);
+            this.playJackpotEffect();
         }
     }
 
@@ -1430,8 +1667,9 @@ export default class GameScene extends Phaser.Scene {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 매 프레임 호출 (Phaser가 자동으로 호출) - 구멍/흙더미 redraw + 파티클 충돌
+    //   + SOUL 게이지 자연 회복 + 번아웃 자동 종료
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    update() {
+    update(time, delta) {
         this.drawHole();
         this.drawMounds();
         this.drawUndergroundOverlay();
@@ -1444,6 +1682,28 @@ export default class GameScene extends Phaser.Scene {
             };
             if (this.dirtEmitter)       this.dirtEmitter.forEachAlive(killIfInMound, this);
             if (this.dirtEmitterSquare) this.dirtEmitterSquare.forEachAlive(killIfInMound, this);
+        }
+
+        // ━━ SOUL 자연 회복 (탭 안 하는 동안 초당 SOUL_REGEN_PER_SECOND씩) ━━
+        // delta는 ms (보통 16~17). 1000ms 모으면 SOUL_REGEN_PER_SECOND 적용
+        if (!this.burnoutActive && this.soulGauge < SOUL_MAX) {
+            const regenAmount = SOUL_REGEN_PER_SECOND * (delta / 1000);
+            this.soulGauge = Math.min(SOUL_MAX, this.soulGauge + regenAmount);
+            this.drawSoulGauge();
+        }
+
+        // ━━ 번아웃 종료 체크 (5초 후 자동 회복) ━━
+        if (this.burnoutActive && time >= this.burnoutEndTime) {
+            this.endBurnout();
+        }
+
+        // ━━ 베이스 캐릭터 텍스처 자동 갱신 ━━
+        //   SOUL이 회복/감소하면서 tired ↔ idle/combo 자동 전환
+        //   transient 활성 중(dig/panic/surprise/clear/treasurePopup)이면 차단
+        //   setCharacterState는 같은 텍스처면 noop이라 매 프레임 호출 안전
+        if (!this.digRevertTimer && !this.panicRevertTimer && !this.surpriseRevertTimer
+            && !this.clearActive && !this.treasurePopupActive) {
+            this.setCharacterState(this.getBaseCharacterState());
         }
     }
 
@@ -1472,14 +1732,19 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 캐릭터 상태 머신 (idle / dig / combo / surprise / clear)
-    // 우선순위: clear > surprise > combo > idle (dig는 transient 0.3초)
+    // 캐릭터 상태 머신 (8종)
+    //   베이스 우선순위 (높음→낮음):
+    //     clear > surprise > tired(SOUL<40) > combo > idle
+    //   Transient (덮어씀):
+    //     panic (3초)  > dig/dig_hard (0.3초)  > 베이스
+    //   panic은 dig보다 우선 → revertCharacterToBase가 panic 활성 중엔 차단
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
     // 현재 게임 상태로부터 표시해야 할 베이스 텍스처 결정
     getBaseCharacterState() {
         if (this.clearActive) return 'clear';
         if (this.treasurePopupActive) return 'surprise';
+        if (this.soulGauge < 40) return 'tired';   // SOUL 40% 미만 = 지침/번아웃 단계
         if (this.combo >= 10) return 'combo';
         return 'idle';
     }
@@ -1570,7 +1835,10 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // 즉시 베이스 상태로 복귀
+    //   transient(panic / surprise) 활성 중이면 차단 (보물 발견·NPC 반응 우선)
     revertCharacterToBase() {
+        if (this.panicRevertTimer) return;
+        if (this.surpriseRevertTimer) return;
         this.setCharacterState(this.getBaseCharacterState());
     }
 
@@ -1582,12 +1850,49 @@ export default class GameScene extends Phaser.Scene {
         }
     }
 
-    // 탭 시 호출 - dig 텍스처로 전환 후 0.3초 뒤 베이스 복귀
-    playDigAnimation() {
-        // surprise/clear 상태일 땐 dig로 덮지 않음 (거기서는 dig() 자체가 차단되니 안전장치)
-        if (this.treasurePopupActive || this.clearActive) return;
+    // 진행 중인 panic 복귀 타이머 취소
+    cancelPanicRevert() {
+        if (this.panicRevertTimer) {
+            this.panicRevertTimer.remove(false);
+            this.panicRevertTimer = null;
+        }
+    }
 
-        this.setCharacterState('dig');
+    // 진행 중인 surprise 복귀 타이머 취소
+    cancelSurpriseRevert() {
+        if (this.surpriseRevertTimer) {
+            this.surpriseRevertTimer.remove(false);
+            this.surpriseRevertTimer = null;
+        }
+    }
+
+    // surprise transient 트리거 - 보물 발견·장애물 등장·잭팟 등 짧은 놀람 표정용
+    //   panic이 활성 중이면 무시 (panic이 더 우선)
+    //   기본 700ms (전형적 깜짝 반응 길이)
+    triggerSurprise(durationMs = 700) {
+        if (this.panicRevertTimer) return;
+        // 진행 중인 dig 모션도 정리해서 surprise가 덮어씌움
+        this.cancelDigRevert();
+        this.cancelSurpriseRevert();
+        this.setCharacterState('surprise');
+        this.surpriseRevertTimer = this.time.delayedCall(durationMs, () => {
+            this.surpriseRevertTimer = null;
+            this.revertCharacterToBase();
+        });
+    }
+
+    // 탭 시 호출 - dig 텍스처로 전환 후 0.3초 뒤 베이스 복귀
+    //   돌·타일(hard soil)이면 dig_hard 텍스처 → 강타 모션
+    //   panic / surprise transient 중이면 dig로 덮지 않음
+    playDigAnimation() {
+        if (this.treasurePopupActive || this.clearActive) return;
+        if (this.panicRevertTimer || this.surpriseRevertTimer) return;
+
+        const isHard = this.layerData
+            && this.soundManager
+            && this.soundManager.isHardSoil(this.layerData.soilType);
+        this.setCharacterState(isHard ? 'dig_hard' : 'dig');
+
         this.cancelDigRevert();
         this.digRevertTimer = this.time.delayedCall(300, () => {
             this.digRevertTimer = null;
@@ -1605,5 +1910,513 @@ export default class GameScene extends Phaser.Scene {
             this.layerNameText.setText(this.layerData.name);
             this.progressText.setText(`${this.digCount} / ${this.layerData.requiredDigs}`);
         }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // SOUL-OUT 게이지 시스템
+    //   - drainSoul(amount): 탭마다 소모, 0 도달 시 startBurnout()
+    //   - drawSoulGauge(): 게이지 fill/색/캐릭터 상태/입속 👻 갱신
+    //   - getSoulStateClass(): 100~70/70~40/40~10/10~0 단계 분류
+    //   - startBurnout()/endBurnout(): 5초 정지 → 20% 회복
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    // 탭마다 호출 - 게이지 감소 + 0 도달 시 번아웃 진입
+    drainSoul(amount) {
+        if (this.burnoutActive) return;
+        this.soulGauge = Math.max(0, this.soulGauge - amount);
+        if (this.soulGauge <= 0) {
+            this.startBurnout();
+        }
+        this.drawSoulGauge();
+    }
+
+    // 게이지 fill height + 색상 + 텍스트 + 캐릭터 입속 👻 동기화
+    drawSoulGauge() {
+        if (!this.soulGaugeFill || !this._soulGaugeRect) return;
+        const r = this._soulGaugeRect;
+        const ratio = Math.max(0, Math.min(1, this.soulGauge / SOUL_MAX));
+        const fillH = r.h * ratio;
+        // origin (0,1) 기준이므로 y 고정, height만 변경
+        this.soulGaugeFill.height = fillH;
+        // 색: 70+ 분홍/녹색 / 40~70 노랑 / 10~40 주황 / 10- 빨강
+        const stateClass = this.getSoulStateClass();
+        const colorMap = {
+            energetic: 0xff5577,   // 100~70 분홍 (열정)
+            normal:    0xffcc44,   // 70~40 노랑
+            tired:     0xff8844,   // 40~10 주황
+            burnout:   0xcc3333    // 10~0 빨강
+        };
+        this.soulGaugeFill.fillColor = colorMap[stateClass];
+        // 텍스트
+        if (this.soulGaugeText) {
+            this.soulGaugeText.setText(`${Math.floor(this.soulGauge)}%`);
+        }
+        // 입속 👻 이모지 (40 미만부터 1개, 10 미만부터 3개+흔들림)
+        this.updateSoulGhostEmojis(stateClass);
+    }
+
+    // 100~70=energetic / 70~40=normal / 40~10=tired / 10~0=burnout
+    getSoulStateClass() {
+        const v = this.soulGauge;
+        if (v >= 70) return 'energetic';
+        if (v >= 40) return 'normal';
+        if (v >= 10) return 'tired';
+        return 'burnout';
+    }
+
+    // 입에서 👻 1~3개 표시 (40 미만부터)
+    updateSoulGhostEmojis(stateClass) {
+        if (!this.character) return;
+        const targetCount = stateClass === 'tired'   ? 1
+                          : stateClass === 'burnout' ? 3
+                          : 0;
+
+        // 부족하면 추가, 넘치면 제거
+        while (this.soulGhostEmojis.length < targetCount) {
+            const idx = this.soulGhostEmojis.length;
+            // 캐릭터 머리 위쪽 입 근처에 떠다니는 작은 👻 (오프셋 살짝 다르게)
+            const ghost = this.add.text(
+                this.character.x - 20 + idx * 18,
+                this.character.y - this.character.displayHeight * 0.5,
+                '👻',
+                { font: '24px sans-serif' }
+            ).setOrigin(0.5).setDepth(12);
+            // 위아래로 천천히 흔들림 (ambient float)
+            this.tweens.add({
+                targets: ghost,
+                y: ghost.y - 8,
+                duration: 700 + idx * 120,
+                yoyo: true, repeat: -1, ease: 'Sine.inOut'
+            });
+            this.soulGhostEmojis.push(ghost);
+        }
+        while (this.soulGhostEmojis.length > targetCount) {
+            const ghost = this.soulGhostEmojis.pop();
+            this.tweens.killTweensOf(ghost);
+            ghost.destroy();
+        }
+
+        // 위치 항상 갱신 (캐릭터 이동 따라옴)
+        this.soulGhostEmojis.forEach((g, i) => {
+            g.x = this.character.x - 20 + i * 18;
+        });
+
+        // 번아웃: 캐릭터 좌우로 흔들림 트윈 (한 번만 시작)
+        if (stateClass === 'burnout' && !this.soulShakeTween && !this.charMoveTween) {
+            this.soulShakeTween = this.tweens.add({
+                targets: this.character,
+                x: this.charBaseX + 4,
+                duration: 80,
+                yoyo: true,
+                repeat: -1,
+                ease: 'Sine.inOut'
+            });
+        } else if (stateClass !== 'burnout' && this.soulShakeTween) {
+            this.soulShakeTween.stop();
+            this.soulShakeTween = null;
+            if (this.character) this.character.x = this.charBaseX;
+        }
+    }
+
+    // 게이지 0 도달 시 - 5초 정지 + 번아웃 라인 + 사운드
+    startBurnout() {
+        this.burnoutActive = true;
+        this.burnoutEndTime = this.time.now + SOUL_BURNOUT_PAUSE_MS;
+        this.soundManager.playBurnoutSound();
+        this.soundManager.triggerHaptic('heavy');
+        // "쓰러질 것 같아..." 말풍선
+        this.showCharacterMonologue(COLLAPSE_LINE);
+    }
+
+    // 5초 후 자동 회복
+    endBurnout() {
+        this.burnoutActive = false;
+        this.soulGauge = SOUL_BURNOUT_RECOVER;
+        this.soundManager.playSoulRecoverSound();
+        this.drawSoulGauge();
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 캐릭터 혼잣말 말풍선 (NPC 말풍선과 별개 - 캐릭터 머리 위 작은 흰 풍선)
+    //   - 2초 유지 후 페이드아웃
+    //   - 텍스트 효과음 (타닥타닥) 동시 재생
+    //   - 동시 1개만 (이미 있으면 즉시 교체)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    showCharacterMonologue(text) {
+        if (!this.character) return;
+
+        // 기존 말풍선 즉시 제거
+        if (this.characterBubble && this.characterBubble.active) {
+            this.tweens.killTweensOf(this.characterBubble);
+            this.characterBubble.destroy();
+            this.characterBubble = null;
+        }
+
+        // 효과음 (텍스트 읽기)
+        this.soundManager.playSpeechBubbleSound();
+
+        // 위치: 캐릭터 머리 위
+        const bubbleX = this.character.x;
+        const bubbleY = this.character.y - this.character.displayHeight - 20;
+
+        const container = this.add.container(bubbleX, bubbleY).setDepth(48);
+
+        // 텍스트
+        const txt = this.add.text(0, 0, text, {
+            font: 'bold 22px sans-serif',
+            color: '#222',
+            align: 'center'
+        }).setOrigin(0.5);
+
+        // 자동 사이즈 측정 후 라운드 사각형 배경 (Graphics)
+        const padX = 18;
+        const padY = 12;
+        const w = txt.width + padX * 2;
+        const h = txt.height + padY * 2;
+
+        const g = this.add.graphics();
+        g.fillStyle(0xffffff, 0.97);
+        g.lineStyle(3, 0x333333, 1);
+        g.fillRoundedRect(-w / 2, -h / 2, w, h, 14);
+        g.strokeRoundedRect(-w / 2, -h / 2, w, h, 14);
+        // 꼬리 (아래쪽 작은 삼각형)
+        g.fillTriangle(-8, h / 2 - 1, 8, h / 2 - 1, 0, h / 2 + 10);
+        g.lineStyle(3, 0x333333, 1);
+        g.strokeTriangle(-8, h / 2 - 1, 8, h / 2 - 1, 0, h / 2 + 10);
+
+        container.add([g, txt]);
+
+        // 등장 애니 (작게 시작 → 1.0)
+        container.setScale(0.4);
+        container.alpha = 0;
+        this.tweens.add({
+            targets: container,
+            scale: 1, alpha: 1,
+            duration: 180, ease: 'Back.out'
+        });
+
+        this.characterBubble = container;
+
+        // 2초 후 페이드아웃
+        this.time.delayedCall(MONOLOGUE_BUBBLE_MS, () => {
+            if (!container.active) return;
+            this.tweens.add({
+                targets: container,
+                alpha: 0, scale: 0.85,
+                duration: 280,
+                onComplete: () => {
+                    if (container.active) container.destroy();
+                    if (this.characterBubble === container) this.characterBubble = null;
+                }
+            });
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 랜덤 장애물 시스템
+    //   spawnObstacle(): 화면 중앙에 장애물 등장 (사운드 + 강진동 + 카메라 흔들)
+    //   hitObstacle(): dig 대신 호출됨 - tapsLeft 감소 + 흔들림
+    //   breakObstacle(): tapsLeft 0 도달 - 부숨 + 보물 확률 부스트
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    spawnObstacle() {
+        if (this.currentObstacle) return;
+        if (!this.character) return;
+
+        // 랜덤 타입 선택
+        const typeKey = OBSTACLE_KEYS[Math.floor(Math.random() * OBSTACLE_KEYS.length)];
+        const def = OBSTACLE_TYPES[typeKey];
+
+        const { width, height } = this.cameras.main;
+        const cx = width / 2;
+        const cy = height * 0.5;
+
+        const container = this.add.container(cx, cy).setDepth(45);
+
+        // 배경 원 (반투명 검정)
+        const bgCircle = this.add.circle(0, 0, 90, 0x000000, 0.55)
+            .setStrokeStyle(5, def.tint, 1);
+
+        // 장애물 이모지 (큼지막하게)
+        const emoji = this.add.text(0, -10, def.emoji, {
+            font: '110px sans-serif'
+        }).setOrigin(0.5);
+
+        // 이름 라벨
+        const nameLabel = this.add.text(0, 75, def.name, {
+            font: 'bold 22px sans-serif',
+            color: '#ffffff', stroke: '#000', strokeThickness: 4
+        }).setOrigin(0.5);
+
+        // HP 바 (탭 진행도)
+        const hpBarW = 160;
+        const hpBarH = 12;
+        const hpBarBg = this.add.rectangle(0, 110, hpBarW, hpBarH, 0x333333, 1)
+            .setStrokeStyle(2, 0xffffff);
+        const hpBar = this.add.rectangle(-hpBarW / 2, 110, hpBarW, hpBarH, 0xffd700, 1)
+            .setOrigin(0, 0.5);
+
+        // 안내 텍스트 (탭 X번 더)
+        const tapHint = this.add.text(0, 138, `👆 탭 ${def.tapsRequired}회!`, {
+            font: 'bold 20px sans-serif',
+            color: '#ffd700', stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5);
+
+        container.add([bgCircle, emoji, nameLabel, hpBarBg, hpBar, tapHint]);
+
+        // 등장 애니 (위에서 떨어짐 + 스케일 펑)
+        container.y = -100;
+        container.setScale(0.4);
+        this.tweens.add({
+            targets: container,
+            y: cy, scale: 1,
+            duration: 320, ease: 'Back.out'
+        });
+
+        // 사운드 + 강진동 + 카메라 셰이크
+        this.soundManager.playObstacleAppearSound();
+        this.soundManager.triggerHardSoilHaptic();   // 손저림 강진동
+        this.cameras.main.shake(180, 0.012);
+
+        // 캐릭터 깜짝 놀람 표정 0.6초 ("어?!" 반응)
+        this.triggerSurprise(600);
+
+        this.currentObstacle = {
+            type: typeKey,
+            def,
+            tapsLeft: def.tapsRequired,
+            tapsTotal: def.tapsRequired,
+            container, emoji, hpBar, hpBarW, tapHint
+        };
+    }
+
+    // 장애물 활성 중 dig() 대신 호출됨 - 탭으로 부수기
+    hitObstacle(x, y) {
+        const ob = this.currentObstacle;
+        if (!ob) return;
+        ob.tapsLeft = Math.max(0, ob.tapsLeft - 1);
+
+        // 캐릭터 강타 모션 (dig_hard 표정 0.3초) + 좌우 삽질 모션
+        // playDigAnimation은 hard soil 분기로 dig_hard 텍스처 자동 선택됨
+        // (단 layerData.soilType이 hard가 아니어도 장애물 자체가 단단한 거라 dig_hard 강제하는 게 자연스러움)
+        this.cancelDigRevert();
+        this.cancelSurpriseRevert();
+        if (!this.panicRevertTimer) {
+            this.setCharacterState('dig_hard');
+            this.digRevertTimer = this.time.delayedCall(300, () => {
+                this.digRevertTimer = null;
+                this.revertCharacterToBase();
+            });
+        }
+        this.playDigShovelMotion();
+
+        // 이모지 흔들림 (부숨 진행 피드백)
+        this.tweens.add({
+            targets: ob.emoji,
+            angle: { from: -12, to: 12 },
+            scale: { from: 1.15, to: 1 },
+            duration: 90, yoyo: true, repeat: 0
+        });
+
+        // HP 바 갱신
+        const ratio = ob.tapsLeft / ob.tapsTotal;
+        ob.hpBar.width = ob.hpBarW * ratio;
+
+        // 사운드 + 햅틱 + 카메라
+        this.soundManager.playObstacleHitSound();
+        this.soundManager.triggerHaptic('heavy');
+        this.cameras.main.shake(80, 0.008);
+
+        // 안내 텍스트 갱신
+        if (ob.tapsLeft > 0) {
+            ob.tapHint.setText(`👆 탭 ${ob.tapsLeft}회!`);
+        } else {
+            this.breakObstacle();
+        }
+    }
+
+    // 장애물 파괴 완료 - 폭발 이펙트 + 보물 확률 부스트
+    breakObstacle() {
+        const ob = this.currentObstacle;
+        if (!ob) return;
+
+        // 사운드 + 강진동 + 강한 카메라 셰이크
+        this.soundManager.playObstacleBreakSound();
+        this.soundManager.triggerHardSoilHaptic();
+        this.cameras.main.shake(280, 0.018);
+        this.cameras.main.flash(180, 255, 230, 120);  // 노란빛 플래시
+
+        // 흙 파티클 폭발 (장애물 위치)
+        const cx = ob.container.x;
+        const cy = ob.container.y;
+        if (this.dirtEmitter)       this.dirtEmitter.explode(60, cx, cy);
+        if (this.dirtEmitterSquare) this.dirtEmitterSquare.explode(30, cx, cy);
+
+        // 보물 확률 +20% 일정 시간 부스트
+        this.treasureBoostUntil = this.time.now + OBSTACLE_BOOST_MS;
+
+        // 부스트 안내 floatingText (위로 올라가며 사라짐)
+        this.showFloatingText(cx, cy - 40, '🏺 보물 확률 +20% (10초)!', '#ffd700');
+
+        // 컨테이너 펑 사라짐
+        this.tweens.add({
+            targets: ob.container,
+            scale: 1.6, alpha: 0,
+            duration: 320, ease: 'Quad.out',
+            onComplete: () => {
+                if (ob.container && ob.container.active) ob.container.destroy();
+            }
+        });
+
+        this.currentObstacle = null;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 보물 발견 직전 0.3초 황금빛 + 두근두근 → 콜백으로 spawnTreasure 호출
+    //   - foreshadowGfx 황금 원 그려서 fade-in/out
+    //   - heartbeat 사운드 + light 햅틱
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playTreasureForeshadow(onComplete) {
+        if (!this.foreshadowGfx || !this.character) {
+            if (onComplete) onComplete();
+            return;
+        }
+
+        // 직전 foreshadow가 진행 중이면 즉시 spawn (콜백 누락 방지)
+        if (this.foreshadowTween && this.foreshadowTween.isPlaying()) {
+            if (onComplete) onComplete();
+            return;
+        }
+
+        // 캐릭터 발 주변에 황금 원 그리기
+        const cx = this.character.x;
+        const cy = this.character.y;
+        this.foreshadowGfx.clear();
+        this.foreshadowGfx.fillStyle(0xffd700, 0.55);
+        this.foreshadowGfx.fillCircle(cx, cy + 10, 90);
+        this.foreshadowGfx.lineStyle(4, 0xffeb3b, 0.9);
+        this.foreshadowGfx.strokeCircle(cx, cy + 10, 90);
+
+        // 사운드 + 햅틱
+        this.soundManager.playHeartbeatSound();
+        this.soundManager.triggerHaptic('light');
+
+        // 페이드 (alpha 0 → 1 → 0)
+        this.foreshadowGfx.alpha = 0;
+        this.foreshadowTween = this.tweens.add({
+            targets: this.foreshadowGfx,
+            alpha: 1,
+            duration: TREASURE_FORESHADOW_MS / 2,
+            yoyo: true,
+            onComplete: () => {
+                this.foreshadowGfx.alpha = 0;
+                this.foreshadowGfx.clear();
+                this.foreshadowTween = null;
+                if (onComplete) onComplete();
+            }
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // legendary "대박!!!" 연출
+    //   - 캐릭터 surprise 텍스처 + 0.5초 슬로우모션
+    //   - "대박!!!" 말풍선 + 승리 멜로디
+    //   - 화면 가장자리 유령 10마리 3초간 떠다님
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playJackpotEffect() {
+        // surprise 캐릭터 2초간 (대박 연출은 일반 보물보다 길게 강조)
+        // 슬로우모션·멜로디·유령 댄스 동안 표정 유지됨
+        this.triggerSurprise(2000);
+
+        // 0.5초 슬로우모션 (Phaser time scale)
+        this.time.timeScale = 0.4;
+        this.tweens.timeScale = 0.4;
+        this.time.delayedCall(500, () => {
+            this.time.timeScale = 1;
+            this.tweens.timeScale = 1;
+        }, [], null);
+        // ※ delayedCall은 timeScale의 영향을 받으므로 ratio가 0.4면 실제 1250ms ≈ 0.5s slow
+        //    (정확히 0.5s real-time 회복 원하면 setTimeout 쓰지만, 게임 흐름상 delayedCall이 자연스러움)
+
+        // "대박!!!" 말풍선
+        this.showCharacterMonologue(JACKPOT_LINE);
+
+        // 승리 멜로디
+        this.soundManager.playJackpotMelody();
+
+        // 화면 가장자리 유령 10마리 (3초 떠다님)
+        this.spawnJackpotGhosts();
+    }
+
+    // 화면 가장자리에 유령 이모지 10개 생성 → 가장자리 따라 회전 이동 → 3초 후 페이드 정리
+    spawnJackpotGhosts() {
+        const { width, height } = this.cameras.main;
+        const ghosts = [];
+
+        for (let i = 0; i < JACKPOT_GHOST_COUNT; i++) {
+            // 가장자리 4면에 균등 분포 (각 변에 2~3개씩)
+            // i를 0~1로 정규화 → 사각형 둘레 위 한 점으로 매핑
+            const t = i / JACKPOT_GHOST_COUNT;
+            const startPos = this._pointOnPerimeter(t, width, height, 30);
+
+            const ghost = this.add.text(startPos.x, startPos.y, '👻', {
+                font: '40px sans-serif'
+            }).setOrigin(0.5).setDepth(110);
+
+            ghost.alpha = 0;
+
+            // 등장 (페이드 인)
+            this.tweens.add({
+                targets: ghost, alpha: 0.95, duration: 250
+            });
+
+            // 둘레를 따라 시계방향으로 1.0 ~ 1.3바퀴 이동
+            const loops = 1 + Math.random() * 0.3;
+            this.tweens.add({
+                targets: { p: t },
+                p: t + loops,
+                duration: JACKPOT_GHOST_DURATION,
+                ease: 'Sine.inOut',
+                onUpdate: (tw, target) => {
+                    if (!ghost.active) return;
+                    const pt = this._pointOnPerimeter(target.p % 1, width, height, 30);
+                    ghost.x = pt.x;
+                    ghost.y = pt.y;
+                }
+            });
+
+            // 위아래 흔들림 (춤)
+            this.tweens.add({
+                targets: ghost,
+                scale: { from: 0.85, to: 1.15 },
+                duration: 280, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+            });
+
+            ghosts.push(ghost);
+        }
+
+        // 3초 후 페이드아웃 + 정리
+        this.time.delayedCall(JACKPOT_GHOST_DURATION, () => {
+            ghosts.forEach((g) => {
+                this.tweens.add({
+                    targets: g, alpha: 0, duration: 300,
+                    onComplete: () => { if (g.active) g.destroy(); }
+                });
+            });
+        });
+    }
+
+    // 사각형 둘레 위 한 점 (t = 0~1, margin = 가장자리에서 안쪽으로 띄움)
+    _pointOnPerimeter(t, w, h, margin) {
+        const innerW = w - margin * 2;
+        const innerH = h - margin * 2;
+        const perim = 2 * (innerW + innerH);
+        let d = (t % 1) * perim;
+        if (d < innerW)                              return { x: margin + d, y: margin };
+        d -= innerW;
+        if (d < innerH)                              return { x: w - margin, y: margin + d };
+        d -= innerH;
+        if (d < innerW)                              return { x: w - margin - d, y: h - margin };
+        d -= innerW;
+        return { x: margin, y: h - margin - d };
     }
 }

@@ -150,15 +150,33 @@ function vibratoTone(opts) {
 // 효과음 설정 테이블 (사용자 스펙)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-// 삽질 효과음 - 톤 + 노이즈 임팩트 (CLAUDE.md: 흙=뚝 / 모래=사르르 / 돌=깡 / 등)
+// 삽질 효과음 - 톤 + 노이즈 임팩트 (사용자 강화 스펙)
+//   흙   '퍽'   : 낮고 둔탁
+//   모래 '사르르': 노이즈 위주
+//   돌   '카캉!': 높고 금속성 + 강한 진동 (HARD = 손저린 연출)
+//   타일 '깡!'  : 날카로운 고음 (HARD)
+//   콘크리트 '쿵!': 묵직함
+//   용암      : 보존
+// hard 플래그가 true면 GameScene이 "손저림 연출"(긴 진동/카메라 셰이크 2배/흰색 플래시) 트리거
 const SOIL_DIG_CONFIG = {
-    dirt:     { freq: 80,  freqEnd: 50,  duration: 0.15, oscType: 'sine',     noise: 0.5,  noiseDur: 0.05 },
-    sand:     { freq: 200, freqEnd: 180, duration: 0.20, oscType: 'triangle', noise: 0.85, noiseDur: 0.14 },
-    tile:     { freq: 800, freqEnd: 600, duration: 0.08, oscType: 'square',   noise: 0.18, noiseDur: 0.02 },
-    rock:     { freq: 50,  freqEnd: 30,  duration: 0.12, oscType: 'sine',     noise: 0.70, noiseDur: 0.04 },
-    concrete: { freq: 180, freqEnd: 120, duration: 0.10, oscType: 'triangle', noise: 0.45, noiseDur: 0.04 },
-    lava:     { freq: 65,  freqEnd: 40,  duration: 0.20, oscType: 'sine',     noise: 0.70, noiseDur: 0.10 }
+    // 흙: 낮은 사인파 + 거친 노이즈로 둔탁한 '퍽'
+    dirt:     { freq: 90,  freqEnd: 45,  duration: 0.18, oscType: 'sine',     noise: 0.60, noiseDur: 0.06, hard: false },
+    // 모래: 노이즈 비중 95% + 톤 약간만 (사르르~)
+    sand:     { freq: 220, freqEnd: 180, duration: 0.22, oscType: 'triangle', noise: 0.95, noiseDur: 0.20, hard: false },
+    // 돌: 1500→700Hz 빠른 슬라이드 + 금속성 square + 강한 노이즈 임팩트 ('카캉!')
+    rock:     { freq: 1500, freqEnd: 700, duration: 0.12, oscType: 'square',  noise: 0.90, noiseDur: 0.05, hard: true,  metalRing: 2400 },
+    // 타일: 2200Hz 짧고 날카로운 square ('깡!')
+    tile:     { freq: 2200, freqEnd: 1600, duration: 0.10, oscType: 'square', noise: 0.40, noiseDur: 0.03, hard: true,  metalRing: 3200 },
+    // 콘크리트: 100→55Hz 묵직한 sawtooth + 두꺼운 노이즈 ('쿵!')
+    concrete: { freq: 100, freqEnd: 55,  duration: 0.18, oscType: 'sawtooth', noise: 0.65, noiseDur: 0.06, hard: false },
+    // 용암: 보존 (낮은 사인 + 노이즈)
+    lava:     { freq: 65,  freqEnd: 40,  duration: 0.20, oscType: 'sine',     noise: 0.70, noiseDur: 0.10, hard: false }
 };
+
+// 외부에서 hard soil 여부 조회 (GameScene이 카메라/플래시/진동 차등 적용)
+export function isHardSoil(soilType) {
+    return !!(SOIL_DIG_CONFIG[soilType] && SOIL_DIG_CONFIG[soilType].hard);
+}
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BGM 시스템 (모듈 레벨 싱글톤 - SFX와 별도 채널)
@@ -230,6 +248,9 @@ export default class SoundManager {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 1) 삽질 사운드 (레이어 soilType별)
+    //   - 흙/모래/콘크리트/용암: 톤 + 베이스 thump + 노이즈 (둔탁/거친 사운드)
+    //   - 돌/타일 (hard): 위 사운드 + metalRing(고음 사인 2400~3200Hz)으로 금속성 강조
+    //     → 햅틱/카메라 강화는 GameScene에서 isHardSoil() 분기로 처리
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     playDigSound(soilType) {
         if (sfxState.muted) return;
@@ -254,6 +275,45 @@ export default class SoundManager {
         if (cfg.noise > 0) {
             noise({ duration: cfg.noiseDur * 1.3, volume: Math.min(1, cfg.noise * 1.5) });
         }
+        // 돌/타일은 금속성 ring 추가 → '카캉!'/'깡!' 느낌
+        if (cfg.metalRing) {
+            tone({
+                freq: cfg.metalRing,
+                freqEnd: cfg.metalRing * 0.6,
+                duration: 0.18,
+                type: 'sine',
+                volume: 0.5,
+                startAt: 0.005
+            });
+            // 옥타브 위 살짝 더 (금속이 울리는 잔향)
+            tone({
+                freq: cfg.metalRing * 1.5,
+                duration: 0.10,
+                type: 'sine',
+                volume: 0.20,
+                startAt: 0.01
+            });
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 1-b) 손저림 강진동 (돌/타일 등 hard soil 전용)
+    //   - 300ms 긴 진동 (Capacitor heavy → 폴백은 navigator.vibrate(300))
+    //   - 일반 medium 햅틱(120ms)의 ~2.5배
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    triggerHardSoilHaptic() {
+        if (sfxState.muted) return;
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            navigator.vibrate(300);  // 300ms 단발 강진동 (손 저림)
+            return;
+        }
+        // Capacitor heavy 폴백
+        this.triggerHaptic('heavy');
+    }
+
+    // soilType이 hard인지 외부에서도 조회 가능 (GameScene 편의)
+    isHardSoil(soilType) {
+        return isHardSoil(soilType);
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -495,6 +555,107 @@ export default class SoundManager {
         tone({ freq: 300, freqEnd: 900, duration: 0.40, type: 'sawtooth', volume: 0.55, startAt: 0.05 });
         // 옥타브 위 (밝은 광채)
         tone({ freq: 600, freqEnd: 1800, duration: 0.40, type: 'sine', volume: 0.25, startAt: 0.05 });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 9) 랜덤 장애물 등장 - "두둥!" 위협음
+    //   500→200Hz 빠른 슬라이드 + 강한 노이즈로 등장 임팩트
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playObstacleAppearSound() {
+        if (sfxState.muted) return;
+        // 위협 sawtooth: 500→200Hz
+        tone({ freq: 500, freqEnd: 200, duration: 0.40, type: 'sawtooth', volume: 0.6 });
+        // 옥타브 아래 sine 두께 추가
+        tone({ freq: 250, freqEnd: 100, duration: 0.45, type: 'sine',     volume: 0.4 });
+        // 0.05s 시점 강한 노이즈 임팩트
+        noise({ duration: 0.20, volume: 0.7, startAt: 0.05 });
+    }
+
+    // 10) 장애물 부수기 진행 (탭마다) - "쿵!" 짧고 강한 임팩트
+    playObstacleHitSound() {
+        if (sfxState.muted) return;
+        tone({ freq: 200, freqEnd: 80, duration: 0.10, type: 'sawtooth', volume: 0.7 });
+        noise({ duration: 0.06, volume: 0.85 });
+    }
+
+    // 11) 장애물 파괴 완료 - "쾅!" + 보너스 chime
+    playObstacleBreakSound() {
+        if (sfxState.muted) return;
+        // 파괴 임팩트
+        tone({ freq: 150, freqEnd: 50, duration: 0.18, type: 'sawtooth', volume: 0.85 });
+        noise({ duration: 0.20, volume: 0.95 });
+        // 0.15s 후 보너스 chime (보물 확률 +20% 알림)
+        tone({ freq: 800,  duration: 0.10, type: 'sine', volume: 0.5, startAt: 0.20 });
+        tone({ freq: 1200, duration: 0.18, type: 'sine', volume: 0.55, startAt: 0.30 });
+        tone({ freq: 1600, duration: 0.22, type: 'sine', volume: 0.55, startAt: 0.40 });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 12) 캐릭터 혼잣말 / 말풍선 효과음
+    //   - 텍스트가 "타닥타닥" 읽는 느낌의 짧은 톤 3연타
+    //   - 800/900/1000Hz 살짝 다른 피치로 자연스러움
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playSpeechBubbleSound() {
+        if (sfxState.muted) return;
+        const freqs = [800, 950, 880];
+        freqs.forEach((f, i) => {
+            tone({
+                freq: f,
+                duration: 0.05,
+                type: 'sine',
+                volume: 0.25,
+                startAt: i * 0.06
+            });
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 13) 보물 발견 직전 두근두근 (heartbeat)
+    //   - 80Hz × 2회 빠른 펄스 (실제 심장박동 리듬)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playHeartbeatSound() {
+        if (sfxState.muted) return;
+        // 두근 (강)
+        tone({ freq: 90, freqEnd: 60, duration: 0.10, type: 'sine', volume: 0.85, startAt: 0.00 });
+        // 두근 (약)
+        tone({ freq: 70, freqEnd: 50, duration: 0.09, type: 'sine', volume: 0.55, startAt: 0.13 });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 14) "대박!!!" 멜로디 (legendary 보물 전용 짧은 승리 BGM)
+    //   - C5 → E5 → G5 → C6 (도-미-솔-도) 상승 화음 + 마지막 길게
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playJackpotMelody() {
+        if (sfxState.muted) return;
+        const notes = [
+            { f: 523, t: 0.00, d: 0.12 },   // C5 도
+            { f: 659, t: 0.10, d: 0.12 },   // E5 미
+            { f: 784, t: 0.20, d: 0.12 },   // G5 솔
+            { f: 1047, t: 0.30, d: 0.45 }   // C6 도 (길게)
+        ];
+        notes.forEach(n => {
+            tone({ freq: n.f, duration: n.d, type: 'square',   volume: 0.55, startAt: n.t });
+            tone({ freq: n.f * 1.5, duration: n.d, type: 'sine', volume: 0.25, startAt: n.t });  // 5도 화음
+        });
+        // 피날레 sparkle (1568Hz = G6)
+        tone({ freq: 1568, duration: 0.6, type: 'sine', volume: 0.35, startAt: 0.50 });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 15) 번아웃 신음 (SOUL-OUT 0% 도달)
+    //   - 200→80Hz 길게 떨어지는 sawtooth (피로감)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playBurnoutSound() {
+        if (sfxState.muted) return;
+        tone({ freq: 200, freqEnd: 80, duration: 0.80, type: 'sawtooth', volume: 0.5 });
+        tone({ freq: 100, freqEnd: 50, duration: 0.80, type: 'sine',     volume: 0.4 });
+    }
+
+    // 16) SOUL-OUT 회복 완료 (다시 파기 시작)
+    playSoulRecoverSound() {
+        if (sfxState.muted) return;
+        tone({ freq: 400, freqEnd: 800, duration: 0.20, type: 'sine', volume: 0.45 });
+        tone({ freq: 600, freqEnd: 1200, duration: 0.22, type: 'sine', volume: 0.30, startAt: 0.05 });
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

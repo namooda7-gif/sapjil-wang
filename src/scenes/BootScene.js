@@ -34,12 +34,17 @@ export default class BootScene extends Phaser.Scene {
         });
 
         // ━━━ 캐릭터 이미지 ━━━
-        // 박삽돌 (char_001) - 5종 상태 이미지 (idle/dig/combo/clear/surprise)
+        // 박삽돌 (char_001) - 8종 상태 이미지
+        //   기본 5종: idle / dig / combo / surprise / clear
+        //   추가 3종: tired (SOUL<40 지침) / panic (NPC 등장) / dig_hard (돌·타일 강타)
         this.load.image('char_001_idle',     'assets/characters/char_001_idle.png');
         this.load.image('char_001_dig',      'assets/characters/char_001_dig.png');
         this.load.image('char_001_combo',    'assets/characters/char_001_combo.png');
         this.load.image('char_001_surprise', 'assets/characters/char_001_surprise.png');
         this.load.image('char_001_clear',    'assets/characters/char_001_clear.png');
+        this.load.image('char_001_tired',    'assets/characters/char_001_tired.png');
+        this.load.image('char_001_panic',    'assets/characters/char_001_panic.png');
+        this.load.image('char_001_dig_hard', 'assets/characters/char_001_dig_hard.png');
 
         // ━━━ 흙더미 이미지 (오른쪽용 1장 → 왼쪽은 flipX로 재활용) ━━━
         this.load.image('mound_right', 'assets/mound_right.png');
