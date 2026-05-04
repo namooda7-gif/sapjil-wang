@@ -298,13 +298,14 @@ export default class SoundManager {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 1-b) 손저림 강진동 (돌/타일 등 hard soil 전용)
-    //   - 300ms 긴 진동 (Capacitor heavy → 폴백은 navigator.vibrate(300))
-    //   - 일반 medium 햅틱(120ms)의 ~2.5배
+    //   - "쿵-쾅-쿵" 트리플 펄스 패턴 → 일반 단발 진동보다 훨씬 임팩트 큼
+    //   - Capacitor 폴백은 heavy 단발 (Capacitor는 패턴 미지원)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     triggerHardSoilHaptic() {
         if (sfxState.muted) return;
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
-            navigator.vibrate(300);  // 300ms 단발 강진동 (손 저림)
+            // 강한 트리플 펄스 (총 ~620ms)
+            navigator.vibrate([180, 60, 180, 60, 200]);
             return;
         }
         // Capacitor heavy 폴백
@@ -314,6 +315,23 @@ export default class SoundManager {
     // soilType이 hard인지 외부에서도 조회 가능 (GameScene 편의)
     isHardSoil(soilType) {
         return isHardSoil(soilType);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 1-c) 돌 충돌 추가 임팩트 (hard soil 전용)
+    //   playDigSound 위에 덧입혀 두께를 늘려주는 보조 사운드
+    //   - 50Hz 깊은 boom (저역 펀치)
+    //   - 0.04s 후 2차 clang (3000Hz 짧고 날카로움)
+    //   - 강한 사이드 노이즈 (긁히는 느낌)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playHardSoilImpactSound() {
+        if (sfxState.muted) return;
+        // 깊은 저역 boom (가슴 울리는 느낌)
+        tone({ freq: 80, freqEnd: 40, duration: 0.22, type: 'sine',     volume: 0.85 });
+        // 2차 clang (살짝 늦게 들어와 잔향감)
+        tone({ freq: 3000, freqEnd: 1800, duration: 0.10, type: 'square', volume: 0.55, startAt: 0.04 });
+        // 사이드 노이즈 (긁히는 거친 질감)
+        noise({ duration: 0.12, volume: 0.95 });
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -571,11 +589,18 @@ export default class SoundManager {
         noise({ duration: 0.20, volume: 0.7, startAt: 0.05 });
     }
 
-    // 10) 장애물 부수기 진행 (탭마다) - "쿵!" 짧고 강한 임팩트
+    // 10) 장애물 부수기 진행 (탭마다) - "쾅!" 강하고 두꺼운 임팩트
+    //   메인 sawtooth + 저역 boom + 고역 clang + 두꺼운 노이즈 4중 레이어
     playObstacleHitSound() {
         if (sfxState.muted) return;
-        tone({ freq: 200, freqEnd: 80, duration: 0.10, type: 'sawtooth', volume: 0.7 });
-        noise({ duration: 0.06, volume: 0.85 });
+        // 메인 임팩트 (볼륨 0.7 → 0.95, 길이 +50%)
+        tone({ freq: 200, freqEnd: 80, duration: 0.15, type: 'sawtooth', volume: 0.95 });
+        // 저역 boom — 깊은 펀치감
+        tone({ freq: 60,  freqEnd: 35, duration: 0.20, type: 'sine',     volume: 0.75 });
+        // 고역 clang — 금속 부딪힘
+        tone({ freq: 2400, freqEnd: 1400, duration: 0.08, type: 'square', volume: 0.55, startAt: 0.02 });
+        // 노이즈 (긁힘) — 두께 강화
+        noise({ duration: 0.10, volume: 1.0 });
     }
 
     // 11) 장애물 파괴 완료 - "쾅!" + 보너스 chime

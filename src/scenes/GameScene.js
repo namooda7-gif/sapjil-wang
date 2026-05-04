@@ -109,15 +109,16 @@ const MOUND_LAYER_COLORS = {
     'layer_006': 0x4A4A4A    // 콘크리트
 };
 
-// soilType → 흙 파티클 색상 팔레트 (3색 변주로 풍부함 + 시각 다양성)
+// soilType → 흙 파티클 색상 팔레트 (5색 변주로 풍부함 + 시각 다양성)
 // 각 발사마다 이 셋 중 랜덤 픽 → 같은 흙도 입자마다 미묘하게 다른 색
+// (사용자 요청: 2가지 이상 → 5색으로 확장)
 const SOIL_TYPE_COLORS = {
-    dirt:     [0x6b4423, 0x8b5a2b, 0x4a2f1a],   // 갈색 톤 3종
-    sand:     [0xd4a574, 0xe8c190, 0xc09060],   // 모래 톤
-    tile:     [0xc89640, 0xe0b060, 0xa07020],   // 황토타일
-    concrete: [0x707070, 0x909090, 0x505050],   // 콘크리트 회색
-    rock:     [0x5a5a5a, 0x7a7a7a, 0x3a3a3a],   // 돌 짙은 회색
-    lava:     [0xcc4422, 0xff6633, 0x992200]    // 용암 빨강~주황
+    dirt:     [0x6b4423, 0x8b5a2b, 0x4a2f1a, 0xa67c52, 0x3d2310],   // 갈색~밝은 흙~짙은 흙 5종
+    sand:     [0xd4a574, 0xe8c190, 0xc09060, 0xf0d4a8, 0xb08050],   // 모래 톤 5종
+    tile:     [0xc89640, 0xe0b060, 0xa07020, 0xd8a850, 0x886015],   // 황토타일 5종
+    concrete: [0x707070, 0x909090, 0x505050, 0xa0a0a0, 0x404040],   // 콘크리트 회색 5종
+    rock:     [0x5a5a5a, 0x7a7a7a, 0x3a3a3a, 0x6b5a4a, 0x4a4035],   // 돌 짙은 회색 5종 (갈색 끼 추가)
+    lava:     [0xcc4422, 0xff6633, 0x992200, 0xff9944, 0x661100]    // 용암 빨강~주황 5종
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -127,8 +128,9 @@ const SOIL_TYPE_COLORS = {
 //   shovelLevel 2: 강철삽  → 파티클 75개 / 햅틱 heavy
 //   shovelLevel 3+: 미스릴 → 파티클 100개 (반짝임 효과는 후속 업데이트)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const SHOVEL_PARTICLE_COUNTS  = [25, 50, 75, 100];                 // 원형 파티클
-const SHOVEL_PARTICLE_SQUARE  = [12, 25, 38, 50];                  // 사각 파티클 (1/2 비율)
+// 사용자 요청: 흙 날림 2배 강화 (이전 25/50/75/100 → 50/100/150/200)
+const SHOVEL_PARTICLE_COUNTS  = [50, 100, 150, 200];               // 원형 파티클
+const SHOVEL_PARTICLE_SQUARE  = [25, 50,  75,  100];               // 사각 파티클 (1/2 비율)
 const SHOVEL_HAPTIC_INTENSITY = ['light', 'medium', 'heavy', 'heavy'];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -429,8 +431,10 @@ export default class GameScene extends Phaser.Scene {
         this.dirtEmitter       = this.add.particles(0, 0, '__dirtParticle', dirtConfig).setDepth(15);
         this.dirtEmitterSquare = this.add.particles(0, 0, '__dirtSquare',   dirtConfig).setDepth(15);
 
-        // 콤보 표시
-        this.comboText = this.add.text(width / 2, height * 0.35, '', {
+        // 콤보 표시 — 캐릭터 머리 위로 (캐릭터.y는 고정, 이 시점에선 displayHeight 계산 완료)
+        // y = character.y - displayHeight - 60 → 머리 위 60px 마진 (어떤 화면 비율에서도 안 겹침)
+        const comboY = this.character.y - this.character.displayHeight - 60;
+        this.comboText = this.add.text(width / 2, comboY, '', {
             font: 'bold 56px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 6
         }).setOrigin(0.5).setAlpha(0);
 
@@ -556,8 +560,11 @@ export default class GameScene extends Phaser.Scene {
         if (this.layerNameText) this.layerNameText.setPosition(width - 30, 65);
         if (this.progressText)  this.progressText.setPosition(width - 30, 100);
 
-        // 화면 중앙 콤보 텍스트
-        if (this.comboText) this.comboText.setPosition(width / 2, height * 0.35);
+        // 콤보 텍스트 — 캐릭터 머리 위 위치 재동기화 (캐릭터.y 고정이라 X만 갱신해도 충분)
+        if (this.comboText && this.character) {
+            const comboY = this.character.y - this.character.displayHeight - 60;
+            this.comboText.setPosition(width / 2, comboY);
+        }
 
         // 탭 영역 (화면 아래쪽 절반) - 위치 + 사이즈 + 히트 영역까지 갱신
         if (this.tapZone) {
@@ -756,21 +763,33 @@ export default class GameScene extends Phaser.Scene {
         // 충격파 원형 이펙트 (흰색 반투명 링이 빠르게 퍼졌다 사라짐)
         this.playTapShockwave(emitX, emitY);
 
-        // ━━ 카메라 셰이크 - hard soil(돌/타일)이면 2배 + 흰색 플래시 ━━
+        // ━━ 카메라 셰이크 - hard soil(돌/타일)이면 더 강한 충격 + 흰색 플래시 + 돌 이모지 분출 ━━
         const isHard = this.soundManager.isHardSoil(this.layerData.soilType);
         if (isHard) {
-            this.cameras.main.shake(120, 0.012);     // 일반의 ~2배
-            this.cameras.main.flash(120, 255, 255, 255, false);  // 흰색 플래시 (손저린 연출)
+            this.cameras.main.shake(180, 0.020);     // 셰이크 강화 (120ms/0.012 → 180ms/0.020)
+            this.cameras.main.flash(150, 255, 255, 255, false);  // 흰색 플래시 (손저린 연출)
+            // 돌 부딪힘 시각 효과: 🪨 이모지 + 💥 스파크가 발치에서 튀어오름
+            this.spawnHardHitEffect(emitX, emitY);
         } else {
             this.cameras.main.shake(60, 0.005);
         }
 
         // 배경 위로 스크롤 (탭마다 2~3px, 콤보 10+ 시 4~5px) - 파고 내려가는 느낌
+        // ━━ wrap 캡 ━━ tilePositionY가 텍스처 끝을 넘어가면 wrap-around되어 화면 아래에
+        //  지상(하늘) 부분이 다시 나타남 → undergroundOverlay가 단색 사각형으로 덮어 시각 버그.
+        //  → 텍스처 끝(영원한 지하)이 화면 바닥에 닿으면 스크롤 멈춤 → wrap·overlay 둘 다 안 발동
         if (this.bgImage && this.bgImage.type === 'TileSprite') {
             const scrollAmount = this.combo >= 10
                 ? Phaser.Math.Between(4, 5)
                 : Phaser.Math.Between(2, 3);
-            this.bgImage.tilePositionY += scrollAmount;
+            const tileScale = this.bgImage.tileScaleY || 1;
+            const screenH = this.cameras.main.height;
+            // wrap 직전까지만 허용: tilePos + screenH/scale ≤ BG_IMAGE_HEIGHT
+            const maxTilePos = Math.max(0, BG_IMAGE_HEIGHT - screenH / tileScale);
+            this.bgImage.tilePositionY = Math.min(
+                this.bgImage.tilePositionY + scrollAmount,
+                maxTilePos
+            );
         }
 
         // 깊이 누적 (1탭 = 10cm) + 텍스트 갱신
@@ -823,9 +842,10 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // ━━ 사운드 + 햅틱 (soilType 기반) ━━
-        // hard(돌/타일)는 300ms 강진동(손저림), 그 외는 삽 레벨별 차등
+        // hard(돌/타일)는 트리플 펄스 강진동 + 추가 보조 임팩트 사운드, 그 외는 삽 레벨별 차등
         this.soundManager.playDigSound(this.layerData.soilType);
         if (isHard) {
+            this.soundManager.playHardSoilImpactSound();   // 두께 +1 레이어 (boom + clang)
             this.soundManager.triggerHardSoilHaptic();
         } else {
             this.soundManager.triggerHaptic(SHOVEL_HAPTIC_INTENSITY[lvl]);
@@ -1432,10 +1452,15 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // 배경 빠르게 위로 쭉 스크롤 (1초) → 1.5초 뒤 loadLayer가 새 레이어 텍스처로 교체
+        // wrap 안 되도록 maxTilePos에서 캡
         if (this.bgImage && this.bgImage.type === 'TileSprite') {
+            const tileScale = this.bgImage.tileScaleY || 1;
+            const screenH = this.cameras.main.height;
+            const maxTilePos = Math.max(0, BG_IMAGE_HEIGHT - screenH / tileScale);
+            const targetY = Math.min(this.bgImage.tilePositionY + 800, maxTilePos);
             this.tweens.add({
                 targets: this.bgImage,
-                tilePositionY: this.bgImage.tilePositionY + 800,
+                tilePositionY: targetY,
                 duration: 1000,
                 ease: 'Cubic.in'
             });
@@ -1645,6 +1670,55 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // (구 _computeBBoxFromPoints는 폴리곤 흙더미 전용 → 이미지 흙더미 getBounds로 대체되어 제거)
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 돌(hard soil) 타격 시각 효과
+    //   - 🪨 돌 이모지가 발치에서 위로 튀어올랐다 떨어짐 (포물선)
+    //   - 💥 스파크 이모지가 좌우로 튀어 흩어짐 (3개)
+    //   - 사용자가 "돌 부딪혔다!"를 즉시 인식 가능
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    spawnHardHitEffect(x, y) {
+        // 메인 돌 이모지 (중앙에서 위로 솟구침)
+        const rock = this.add.text(x, y, '🪨', {
+            font: '64px sans-serif'
+        }).setOrigin(0.5).setDepth(16);
+
+        const peakY = y - 130;
+        // 위로 솟구쳤다 떨어짐 (포물선)
+        this.tweens.chain({
+            targets: rock,
+            tweens: [
+                { y: peakY, scale: { from: 0.5, to: 1.3 }, duration: 220, ease: 'Quad.out' },
+                { y: y + 10, scale: 0.8, alpha: 0, duration: 320, ease: 'Quad.in' }
+            ],
+            onComplete: () => rock.destroy()
+        });
+        // 회전 (하늘에서 빙글)
+        this.tweens.add({
+            targets: rock, angle: 360, duration: 540, ease: 'Linear'
+        });
+
+        // 스파크 3개 (좌/중/우로 튀김)
+        const sparkAngles = [-60, 0, 60]; // 좌상/위/우상
+        sparkAngles.forEach((deg) => {
+            const rad = Phaser.Math.DegToRad(deg - 90);  // -90 = 위쪽 기준
+            const dist = 80 + Math.random() * 40;
+            const sx = x + Math.cos(rad) * dist;
+            const sy = y + Math.sin(rad) * dist;
+            const spark = this.add.text(x, y, '💥', {
+                font: '36px sans-serif'
+            }).setOrigin(0.5).setDepth(16);
+            this.tweens.add({
+                targets: spark,
+                x: sx, y: sy,
+                scale: { from: 0.6, to: 1.4 },
+                alpha: { from: 1, to: 0 },
+                duration: 380,
+                ease: 'Quad.out',
+                onComplete: () => spark.destroy()
+            });
+        });
+    }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 탭 충격파 - 흰색 반투명 링이 빠르게 퍼졌다 사라짐
@@ -1883,10 +1957,14 @@ export default class GameScene extends Phaser.Scene {
 
     // 탭 시 호출 - dig 텍스처로 전환 후 0.3초 뒤 베이스 복귀
     //   돌·타일(hard soil)이면 dig_hard 텍스처 → 강타 모션
-    //   panic / surprise transient 중이면 dig로 덮지 않음
+    //   panic 중에만 dig 차단 (NPC 반응 보호) - surprise는 탭하면 즉시 dig로 전환
     playDigAnimation() {
         if (this.treasurePopupActive || this.clearActive) return;
-        if (this.panicRevertTimer || this.surpriseRevertTimer) return;
+        if (this.panicRevertTimer) return;
+
+        // surprise 진행 중에 탭하면 surprise 즉시 종료 → dig 텍스처로 자연스럽게 전환
+        // (놀란 표정 채로 삽질되는 어색함 차단)
+        this.cancelSurpriseRevert();
 
         const isHard = this.layerData
             && this.soundManager
@@ -2221,10 +2299,11 @@ export default class GameScene extends Phaser.Scene {
         const ratio = ob.tapsLeft / ob.tapsTotal;
         ob.hpBar.width = ob.hpBarW * ratio;
 
-        // 사운드 + 햅틱 + 카메라
+        // 사운드 + 햅틱 + 카메라 (장애물은 hard soil보다 더 강한 충격감)
         this.soundManager.playObstacleHitSound();
-        this.soundManager.triggerHaptic('heavy');
-        this.cameras.main.shake(80, 0.008);
+        this.soundManager.triggerHardSoilHaptic();      // 트리플 펄스 강진동
+        this.cameras.main.shake(160, 0.018);            // 80/0.008 → 160/0.018
+        this.cameras.main.flash(120, 255, 230, 200, false);  // 노란 플래시로 충돌 강조
 
         // 안내 텍스트 갱신
         if (ob.tapsLeft > 0) {
