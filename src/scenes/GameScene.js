@@ -54,6 +54,18 @@ const CHARACTER_Y = SURFACE_TEXTURE_Y + CHARACTER_VERTICAL_OFFSET; // = 903 - 45
 
 const INITIAL_TILE_POSITION_Y = 0;  // 시작 시 텍스처 스크롤 위치 (이미지 상단부터)
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 지하 무한 루프 (B-2 방식)
+//   - 원본 텍스처(2580px) 스크롤이 LOOP_START_ROW(=1000)에 도달하면
+//     "지하 전용" 잘라낸 텍스처(rows 1000~2580 = 1580px)로 seamless 전환
+//   - 루프 텍스처는 TileSprite 자체 wrap으로 무한 반복
+//   - 결과: 깊이 파면 그 레이어 고유의 지하 패턴(파이프/벌레/지층 등)이
+//     끝없이 이어지면서 보임 (단색 어둠으로 덮지 않음)
+//   - LOOP_START_ROW = 1000: 지표면 라인(903) 살짝 아래 = 안전하게 지하 영역
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const LOOP_START_ROW = 1000;
+const LOOP_TEXTURE_HEIGHT = BG_IMAGE_HEIGHT - LOOP_START_ROW; // = 1580
+
 // 하단 HUD(깊이 표시 / 메뉴 버튼) 화면 바닥에서 띄우는 마진 (게임 좌표 px)
 //   - 폰 하단의 시스템 UI(제스처 바, 내비 버튼) 영역에 가리지 않도록 충분히 띄움
 //   - 30 → 100으로 늘림 (사장님 피드백: 메뉴/지하10m가 절반 잘림)
@@ -139,8 +151,7 @@ const SHOVEL_HAPTIC_INTENSITY = ['light', 'medium', 'heavy', 'heavy'];
 //   - 등장 중에는 일반 dig 차단, 장애물 전용 탭으로 카운트
 //   - 부수면 보물 확률 +20% (10초간 부스트)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const OBSTACLE_TAP_INTERVAL  = 20;        // 매 N탭마다 등장 체크
-const OBSTACLE_SPAWN_CHANCE  = 0.10;      // 등장 확률 10%
+const OBSTACLE_TAP_INTERVAL  = 20;        // 매 N탭마다 무조건 등장 (확률 X)
 const OBSTACLE_BOOST_MS      = 10000;     // 보물 확률 부스트 지속 (10초)
 const OBSTACLE_BOOST_AMOUNT  = 0.20;      // +20% 추가 확률
 const OBSTACLE_TYPES = {
@@ -240,6 +251,16 @@ export default class GameScene extends Phaser.Scene {
         // 배경 스크롤 TileSprite (create에서 생성)
         this.scrollBg = null;
 
+        // 지하 무한 루프 텍스처 사용 중 플래그
+        // false → 원본 텍스처(레이어 지상~지하 전체) 스크롤 중
+        // true  → 지하 전용 잘라낸 텍스처로 무한 wrap 스크롤 중
+        this.usingLoopTexture = false;
+
+        // 누적 스크롤량 (텍스처 wrap에 무관하게 항상 증가)
+        // → drawHole의 hole 크기 계산에 사용 (루프 전환 시 점프 방지)
+        // → loadLayer에서 0으로 리셋
+        this.virtualScrollY = 0;
+
         // 구덩이 + 흙더미 시스템
         this.holeImage = null;                // 구덩이 Image (hole.png)
         this.leftMound = null;                // 좌 흙더미 Image (mound_right.png + flipX)
@@ -282,7 +303,7 @@ export default class GameScene extends Phaser.Scene {
         this.soundManager = new SoundManager(this);
         this.currencyManager = new CurrencyManager();
 
-        // 배경 (loadLayer에서 색만 갱신) - bgImage 로딩 실패 시 폴백 색
+        // 배경 폴백 사각형 (bgImage 로드 실패 시에만 보이는 색)
         this.bg = this.add.rectangle(width / 2, height / 2, width, height, 0x6b4423);
 
         // ━━━ 레이어 배경 이미지 (TileSprite로 무한 세로 스크롤) ━━━
@@ -337,13 +358,14 @@ export default class GameScene extends Phaser.Scene {
         this.characterBaseScale = this.character.scaleX; // 추가 효과용 보관
         this.charBaseX = this.character.x;               // 좌우 삽질 모션 정지 위치
 
-        // 캐릭터 이름 (발 아래) - origin (0.5, 1)이라 character.y가 발 위치
+        // 캐릭터 이름 (화면 최상단 중앙) - 콤보/팝업 텍스트와 겹치지 않도록 상단 고정
+        // origin (0.5, 0) → x = 화면 중앙, y = 30이 텍스트 상단 위치
         this.characterLabel = this.add.text(
             width / 2,
-            this.character.y + 20,
+            30,
             '박삽돌',
             { font: 'bold 24px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 4 }
-        ).setOrigin(0.5);
+        ).setOrigin(0.5, 0);
 
         // ━━━ 구덩이 이미지 + 흙더미 ━━━
         // 위치는 character.x / character.y(=발) 기준
@@ -438,8 +460,9 @@ export default class GameScene extends Phaser.Scene {
             font: 'bold 56px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 6
         }).setOrigin(0.5).setAlpha(0);
 
-        // 탭 영역 (화면 아래쪽 절반)
-        this.tapZone = this.add.rectangle(width / 2, height * 0.75, width, height * 0.5, 0x000000, 0)
+        // 탭 영역 (화면 전체) - 장애물이 화면 정중앙에 등장하므로 어디 탭해도 인식되어야 함
+        // depth 0 (배경 위, HUD/캐릭터/장애물 아래) → 다른 UI 클릭 차단 안 함
+        this.tapZone = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0)
             .setInteractive({ useHandCursor: true });
         this.tapZone.on('pointerdown', (pointer) => {
             this.dig(pointer.x, pointer.y);
@@ -566,13 +589,13 @@ export default class GameScene extends Phaser.Scene {
             this.comboText.setPosition(width / 2, comboY);
         }
 
-        // 탭 영역 (화면 아래쪽 절반) - 위치 + 사이즈 + 히트 영역까지 갱신
+        // 탭 영역 (화면 전체) - 위치 + 사이즈 + 히트 영역까지 갱신
         if (this.tapZone) {
-            this.tapZone.setPosition(width / 2, height * 0.75);
-            this.tapZone.setSize(width, height * 0.5);
+            this.tapZone.setPosition(width / 2, height / 2);
+            this.tapZone.setSize(width, height);
             // 히트 영역도 함께 갱신 (Phaser는 자동 갱신 안 함)
             if (this.tapZone.input && this.tapZone.input.hitArea) {
-                this.tapZone.input.hitArea.setTo(0, 0, width, height * 0.5);
+                this.tapZone.input.hitArea.setTo(0, 0, width, height);
             }
         }
 
@@ -583,9 +606,9 @@ export default class GameScene extends Phaser.Scene {
         if (this.depthText) this.depthText.setPosition(30, height - HUD_BOTTOM_MARGIN);
         if (this.menuBtn)   this.menuBtn.setPosition(width - 30, height - HUD_BOTTOM_MARGIN);
 
-        // 캐릭터 라벨 위치 재동기화 (character.y는 안 바뀌지만 width/2 기준 X는 바뀔 수 있음)
-        if (this.characterLabel && this.character) {
-            this.characterLabel.setPosition(this.character.x, this.character.y + 20);
+        // 캐릭터 라벨 위치 재동기화 (상단 중앙 고정 - 화면 너비 변화 시 X만 갱신)
+        if (this.characterLabel) {
+            this.characterLabel.setPosition(width / 2, 30);
         }
 
         // SOUL-OUT 게이지 (높이만 화면 비율에 맞춰 갱신, X는 좌측 고정)
@@ -635,11 +658,14 @@ export default class GameScene extends Phaser.Scene {
         this.cancelDigRevert();
         if (this.character) this.setCharacterState('idle');
 
-        // 배경색 자동 적용 (이미지 미로드 시 폴백)
+        // 배경 폴백 (bgImage 로드 실패 시) - 레이어 색
         this.bg.fillColor = layer.bgColor;
 
         // 레이어 배경 이미지 교체 + 타일 스케일 재계산 + 초기 tilePositionY 리셋
+        // 새 레이어는 항상 원본 텍스처(지상~지하 전체)부터 시작 → 루프 플래그도 리셋
         const bgKey = `${layer.id}_bg`;
+        this.usingLoopTexture = false;
+        this.virtualScrollY = 0;
         if (this.bgImage && this.textures.exists(bgKey)) {
             this.bgImage.setTexture(bgKey);
             this.applyBackgroundCoverFit();
@@ -775,21 +801,43 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // 배경 위로 스크롤 (탭마다 2~3px, 콤보 10+ 시 4~5px) - 파고 내려가는 느낌
-        // ━━ wrap 캡 ━━ tilePositionY가 텍스처 끝을 넘어가면 wrap-around되어 화면 아래에
-        //  지상(하늘) 부분이 다시 나타남 → undergroundOverlay가 단색 사각형으로 덮어 시각 버그.
-        //  → 텍스처 끝(영원한 지하)이 화면 바닥에 닿으면 스크롤 멈춤 → wrap·overlay 둘 다 안 발동
+        // ━━ B-2 무한 지하 루프 ━━
+        //   Phase 1: 원본 텍스처(지상→지하 전체) 스크롤. tilePos가 LOOP_START_ROW에 도달하면
+        //            "지하 전용" 잘라낸 텍스처로 seamless 전환 (overshoot만큼 새 tilePos에 반영).
+        //   Phase 2: 루프 텍스처(높이 LOOP_TEXTURE_HEIGHT). tilePositionY를 그 높이로 모듈로
+        //            연산해서 무한 wrap → 그 레이어 고유의 지하 패턴이 끝없이 이어짐.
         if (this.bgImage && this.bgImage.type === 'TileSprite') {
             const scrollAmount = this.combo >= 10
                 ? Phaser.Math.Between(4, 5)
                 : Phaser.Math.Between(2, 3);
-            const tileScale = this.bgImage.tileScaleY || 1;
-            const screenH = this.cameras.main.height;
-            // wrap 직전까지만 허용: tilePos + screenH/scale ≤ BG_IMAGE_HEIGHT
-            const maxTilePos = Math.max(0, BG_IMAGE_HEIGHT - screenH / tileScale);
-            this.bgImage.tilePositionY = Math.min(
-                this.bgImage.tilePositionY + scrollAmount,
-                maxTilePos
-            );
+
+            // 누적 스크롤량 갱신 (루프 wrap에 무관하게 항상 증가) → drawHole에서 사용
+            this.virtualScrollY += scrollAmount;
+
+            if (!this.usingLoopTexture) {
+                const newTilePos = this.bgImage.tilePositionY + scrollAmount;
+                if (newTilePos >= LOOP_START_ROW) {
+                    // 임계점 도달 → 루프 텍스처로 전환 (시각적으로 seamless)
+                    const loopKey = this.ensureLoopTexture(this.layerData && this.layerData.id);
+                    if (loopKey) {
+                        this.bgImage.setTexture(loopKey);
+                        this.applyBackgroundCoverFit();
+                        // 루프 텍스처 row 0 = 원본 row LOOP_START_ROW와 동일한 픽셀
+                        // 따라서 overshoot(=newTilePos - LOOP_START_ROW)만 새 tilePos로 설정
+                        this.bgImage.tilePositionY = newTilePos - LOOP_START_ROW;
+                        this.usingLoopTexture = true;
+                    } else {
+                        // 루프 텍스처 생성 실패(에셋 누락 등) - 안전망: 원본 끝에서 정지
+                        this.bgImage.tilePositionY = LOOP_START_ROW;
+                    }
+                } else {
+                    this.bgImage.tilePositionY = newTilePos;
+                }
+            } else {
+                // Phase 2: 루프 텍스처 - 높이로 모듈로 연산하여 무한 wrap
+                this.bgImage.tilePositionY =
+                    (this.bgImage.tilePositionY + scrollAmount) % LOOP_TEXTURE_HEIGHT;
+            }
         }
 
         // 깊이 누적 (1탭 = 10cm) + 텍스트 갱신
@@ -866,12 +914,11 @@ export default class GameScene extends Phaser.Scene {
             this.showCharacterMonologue(line);
         }
 
-        // ━━ 20탭마다 장애물 등장 체크 (10% 확률) ━━
+        // ━━ 20탭마다 장애물 무조건 등장 (확률 X) ━━
+        // 단, 이미 활성 장애물이 있으면 spawnObstacle 내부에서 자동 차단됨
         if (this.tapsSinceLastObstacleCheck >= OBSTACLE_TAP_INTERVAL) {
             this.tapsSinceLastObstacleCheck = 0;
-            if (Math.random() < OBSTACLE_SPAWN_CHANCE) {
-                this.spawnObstacle();
-            }
+            this.spawnObstacle();
         }
 
         // ━━ 보물 출현 체크 ━━
@@ -1452,15 +1499,12 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // 배경 빠르게 위로 쭉 스크롤 (1초) → 1.5초 뒤 loadLayer가 새 레이어 텍스처로 교체
-        // wrap 안 되도록 maxTilePos에서 캡
+        // 어차피 1.5초 후 loadLayer가 텍스처/tilePos 모두 리셋하므로 cap 불필요
+        // (루프 텍스처 모드여도 자동 wrap이라 시각적 안전)
         if (this.bgImage && this.bgImage.type === 'TileSprite') {
-            const tileScale = this.bgImage.tileScaleY || 1;
-            const screenH = this.cameras.main.height;
-            const maxTilePos = Math.max(0, BG_IMAGE_HEIGHT - screenH / tileScale);
-            const targetY = Math.min(this.bgImage.tilePositionY + 800, maxTilePos);
             this.tweens.add({
                 targets: this.bgImage,
-                tilePositionY: targetY,
+                tilePositionY: this.bgImage.tilePositionY + 800,
                 duration: 1000,
                 ease: 'Cubic.in'
             });
@@ -1544,9 +1588,11 @@ export default class GameScene extends Phaser.Scene {
         const w = this.cameras.main.width * HOLE_WIDTH_RATIO;
 
         // ━━ 지표면 Y 계산 ━━
-        // 화면 y = (textureY - tilePositionY) × tileScaleY
-        // 모든 레이어 동일 처리 — 각 레이어는 자체 지표면을 가진 새 배경이고, loadLayer가 tilePositionY=0으로 리셋함
-        const bgScrollY = (this.bgImage && this.bgImage.tilePositionY) ? this.bgImage.tilePositionY : 0;
+        // 화면 y = (textureY - virtualScrollY) × tileScaleY
+        // virtualScrollY는 텍스처 wrap에 무관하게 누적되는 스크롤량
+        // → 루프 텍스처로 전환돼도 hole 크기는 끊김 없이 계속 자라남
+        // → loadLayer에서 0으로 리셋됨 (새 레이어 hole = MIN_HEIGHT)
+        const bgScrollY = this.virtualScrollY || 0;
         const tileScale = (this.bgImage && this.bgImage.tileScaleY)   ? this.bgImage.tileScaleY   : 1;
         const surfaceY  = (SURFACE_TEXTURE_Y - bgScrollY) * tileScale;
 
@@ -1573,41 +1619,43 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 지하 마스킹 오버레이 — TileSprite wrap-around 영역을 단색으로 덮음
-    //
-    // TileSprite는 텍스처가 끝나면 자동으로 wrap돼서 처음부터 다시 보여줌.
-    // 깊이 많이 팠을 때(tilePositionY 큼) 화면 아래쪽이 wrap돼서 지상 부분이
-    // 다시 나타나는 현상 발생 → 이 영역을 underground 단색으로 덮어 차단.
-    //
-    // wrap 발생 화면 Y = (textureHeight - tilePositionY) × tileScaleY
-    // → 이 위치부터 화면 바닥까지 단색 사각형으로 덮음
+    // 지하 무한 루프 텍스처 캐싱 (B-2 방식)
+    //   - 원본 레이어 텍스처(720×2580)에서 row LOOP_START_ROW 이하만 잘라내
+    //     별도 캔버스 텍스처로 등록 → 그 레이어의 지하 패턴이 wrap-friendly
+    //   - 한 레이어당 1번만 생성하고 캐시 (텍스처 manager에 저장)
+    //   - 키: `${layerId}_bg_loop`
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ensureLoopTexture(layerId) {
+        if (!layerId) return null;
+        const loopKey = `${layerId}_bg_loop`;
+        if (this.textures.exists(loopKey)) return loopKey;
+
+        const srcKey = `${layerId}_bg`;
+        if (!this.textures.exists(srcKey)) return null;
+
+        const srcImg = this.textures.get(srcKey).getSourceImage();
+        if (!srcImg || !srcImg.width || !srcImg.height) return null;
+
+        const w = srcImg.width;
+        const h = LOOP_TEXTURE_HEIGHT;
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        // 원본 row LOOP_START_ROW부터 끝까지를 새 캔버스 row 0부터 그림
+        ctx.drawImage(srcImg, 0, LOOP_START_ROW, w, h, 0, 0, w, h);
+        this.textures.addCanvas(loopKey, canvas);
+        return loopKey;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 지하 마스킹 오버레이 (B-2 도입 후 비활성)
+    //   - 기존엔 TileSprite wrap-around로 지상이 화면 아래에 재출현하는 걸 단색으로 덮었음
+    //   - B-2에선 LOOP_START_ROW에서 지하 전용 텍스처로 전환되어 wrap이 안 발생함
+    //   - 따라서 이 오버레이는 그릴 필요 없음 (graphics는 clear만 - 만약을 위해 보존)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     drawUndergroundOverlay() {
-        if (!this.undergroundOverlay || !this.bgImage) return;
-        this.undergroundOverlay.clear();
-        if (this.bgImage.type !== 'TileSprite') return;
-
-        const tex = this.bgImage.texture && this.bgImage.texture.getSourceImage
-            ? this.bgImage.texture.getSourceImage()
-            : null;
-        const texH = (tex && tex.height) ? tex.height : 2580;
-        const tileScale = this.bgImage.tileScaleY || 1;
-        const tilePos   = this.bgImage.tilePositionY || 0;
-
-        // wrap이 발생하는 화면 Y 좌표
-        const wrapScreenY = (texH - tilePos) * tileScale;
-
-        const screenW = this.cameras.main.width;
-        const screenH = this.cameras.main.height;
-
-        // wrap이 화면 바깥(아래)이면 덮을 필요 없음
-        if (wrapScreenY >= screenH) return;
-
-        // 덮을 영역: wrap 라인부터 화면 바닥까지
-        const top = Math.max(0, wrapScreenY);
-        const undergroundColor = this.darkenColor(this.currentMoundColor || 0x4a2f1a, 0.7);
-        this.undergroundOverlay.fillStyle(undergroundColor, 1);
-        this.undergroundOverlay.fillRect(0, top, screenW, screenH - top);
+        if (this.undergroundOverlay) this.undergroundOverlay.clear();
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -1857,9 +1905,7 @@ export default class GameScene extends Phaser.Scene {
         if (this.leftMound)  this.leftMound.y  = this.character.y;
         if (this.rightMound) this.rightMound.y = this.character.y;
 
-        if (this.characterLabel) {
-            this.characterLabel.setPosition(this.character.x, this.character.y + 20);
-        }
+        // 캐릭터 라벨은 상단 중앙 고정이라 캐릭터 위치 변화와 무관 (resize에서만 갱신)
     }
 
     // 배경 이미지를 화면에 맞게 스케일
@@ -1957,14 +2003,14 @@ export default class GameScene extends Phaser.Scene {
 
     // 탭 시 호출 - dig 텍스처로 전환 후 0.3초 뒤 베이스 복귀
     //   돌·타일(hard soil)이면 dig_hard 텍스처 → 강타 모션
-    //   panic 중에만 dig 차단 (NPC 반응 보호) - surprise는 탭하면 즉시 dig로 전환
+    //   surprise/panic 등 어떤 transient 중이라도 탭하면 즉시 dig 텍스처로 전환
+    //   (표정은 그대로인데 효과음·스크롤만 나오는 어색함 차단)
     playDigAnimation() {
         if (this.treasurePopupActive || this.clearActive) return;
-        if (this.panicRevertTimer) return;
 
-        // surprise 진행 중에 탭하면 surprise 즉시 종료 → dig 텍스처로 자연스럽게 전환
-        // (놀란 표정 채로 삽질되는 어색함 차단)
+        // 진행 중인 transient(surprise/panic)는 모두 취소하고 dig로 전환
         this.cancelSurpriseRevert();
+        this.cancelPanicRevert();
 
         const isHard = this.layerData
             && this.soundManager
