@@ -304,11 +304,22 @@ export default class SoundManager {
     triggerHardSoilHaptic() {
         if (sfxState.muted) return;
         if (typeof navigator !== 'undefined' && navigator.vibrate) {
-            // 강한 트리플 펄스 (총 ~620ms)
-            navigator.vibrate([180, 60, 180, 60, 200]);
+            // 사용자 요청: 진동 더 강하게 → 펄스 길이 +60~80%, 5단 → 더 묵직 (총 ~1.2s)
+            navigator.vibrate([320, 70, 320, 70, 380]);
             return;
         }
         // Capacitor heavy 폴백
+        this.triggerHaptic('heavy');
+    }
+
+    // 장애물 부수기 전용 강진동 (hard soil보다 한 단계 더 묵직)
+    triggerObstacleHitHaptic() {
+        if (sfxState.muted) return;
+        if (typeof navigator !== 'undefined' && navigator.vibrate) {
+            // 4펄스 무거운 탕탕탕 (~1.4s)
+            navigator.vibrate([400, 80, 400, 80, 400, 80, 450]);
+            return;
+        }
         this.triggerHaptic('heavy');
     }
 
@@ -576,43 +587,140 @@ export default class SoundManager {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 9) 랜덤 장애물 등장 - "두둥!" 위협음
-    //   500→200Hz 빠른 슬라이드 + 강한 노이즈로 등장 임팩트
+    // 9) 랜덤 장애물 등장 - "두두둥!" 거친 위협음 (사용자: 더 거칠게)
+    //   sawtooth 트리플 디센드 + 두꺼운 노이즈 + 깊은 sub-boom
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     playObstacleAppearSound() {
         if (sfxState.muted) return;
-        // 위협 sawtooth: 500→200Hz
-        tone({ freq: 500, freqEnd: 200, duration: 0.40, type: 'sawtooth', volume: 0.6 });
-        // 옥타브 아래 sine 두께 추가
-        tone({ freq: 250, freqEnd: 100, duration: 0.45, type: 'sine',     volume: 0.4 });
-        // 0.05s 시점 강한 노이즈 임팩트
-        noise({ duration: 0.20, volume: 0.7, startAt: 0.05 });
+        // 거친 sawtooth 트리플 디센드 (500→100Hz, 위협감 증폭)
+        tone({ freq: 600, freqEnd: 250, duration: 0.18, type: 'sawtooth', volume: 0.7 });
+        tone({ freq: 400, freqEnd: 150, duration: 0.22, type: 'sawtooth', volume: 0.7, startAt: 0.12 });
+        tone({ freq: 280, freqEnd: 80,  duration: 0.32, type: 'sawtooth', volume: 0.75, startAt: 0.26 });
+        // 깊은 sub-boom (가슴 울림)
+        tone({ freq: 70,  freqEnd: 35, duration: 0.55, type: 'sine', volume: 0.6 });
+        // 두꺼운 노이즈 (등장 임팩트)
+        noise({ duration: 0.30, volume: 0.95 });
+        noise({ duration: 0.18, volume: 0.7, startAt: 0.20 });
     }
 
-    // 10) 장애물 부수기 진행 (탭마다) - "쾅!" 강하고 두꺼운 임팩트
-    //   메인 sawtooth + 저역 boom + 고역 clang + 두꺼운 노이즈 4중 레이어
-    playObstacleHitSound() {
+    // 10) 장애물 부수기 진행 (탭마다) - 타입별 거친 사운드 (사용자: 뿅뿅 X, 다 다르게)
+    //   각 obstacle type별로 음색/주파수/노이즈 비율 차등 → 명확히 다른 질감
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playObstacleHitSound(type = 'rock') {
         if (sfxState.muted) return;
-        // 메인 임팩트 (볼륨 0.7 → 0.95, 길이 +50%)
-        tone({ freq: 200, freqEnd: 80, duration: 0.15, type: 'sawtooth', volume: 0.95 });
-        // 저역 boom — 깊은 펀치감
-        tone({ freq: 60,  freqEnd: 35, duration: 0.20, type: 'sine',     volume: 0.75 });
-        // 고역 clang — 금속 부딪힘
-        tone({ freq: 2400, freqEnd: 1400, duration: 0.08, type: 'square', volume: 0.55, startAt: 0.02 });
-        // 노이즈 (긁힘) — 두께 강화
-        noise({ duration: 0.10, volume: 1.0 });
+        switch (type) {
+            case 'rock':    this._hitRock();    break;
+            case 'bone':    this._hitBone();    break;
+            case 'root':    this._hitRoot();    break;
+            case 'ice':     this._hitIce();     break;
+            case 'iron':    this._hitIron();    break;
+            case 'skull':   this._hitSkull();   break;
+            case 'pot':     this._hitPot();     break;
+            case 'crystal': this._hitCrystal(); break;
+            default:        this._hitRock();    break;
+        }
     }
 
-    // 11) 장애물 파괴 완료 - "쾅!" + 보너스 chime
+    // 바위: 깊은 sub-boom + 거친 노이즈 + 둔탁한 sawtooth (쾅! 콱!)
+    _hitRock() {
+        tone({ freq: 220, freqEnd: 70,  duration: 0.18, type: 'sawtooth', volume: 1.0 });
+        tone({ freq: 55,  freqEnd: 28,  duration: 0.28, type: 'sine',     volume: 0.85 });
+        noise({ duration: 0.16, volume: 1.0 });
+        noise({ duration: 0.08, volume: 0.7, startAt: 0.06 });
+    }
+
+    // 뼈: 마른 hollow crack + dry clatter (텅! 따악!)
+    _hitBone() {
+        // hollow square 크랙
+        tone({ freq: 380, freqEnd: 180, duration: 0.10, type: 'square',   volume: 0.85 });
+        // 두번째 짧은 크랙 (뼈 갈라지는 느낌)
+        tone({ freq: 520, freqEnd: 240, duration: 0.07, type: 'square',   volume: 0.7, startAt: 0.05 });
+        // 살짝 딜레이로 더 갈라짐
+        tone({ freq: 700, freqEnd: 320, duration: 0.06, type: 'triangle', volume: 0.5, startAt: 0.10 });
+        // 마른 노이즈 (먼지 + 갈라짐)
+        noise({ duration: 0.14, volume: 0.85 });
+    }
+
+    // 뿌리: 끊어지는 wood tear + 둔탁한 thump (뚝! 콰직!)
+    _hitRoot() {
+        // 뿌리 끊김 - 빠른 디센드 sawtooth (찢어짐)
+        tone({ freq: 320, freqEnd: 80,  duration: 0.22, type: 'sawtooth', volume: 0.95 });
+        // 저역 thump
+        tone({ freq: 90,  freqEnd: 50,  duration: 0.18, type: 'sine',     volume: 0.7 });
+        // 갈라지는 거친 노이즈 (긴 꼬리)
+        noise({ duration: 0.22, volume: 0.95 });
+    }
+
+    // 얼음: 날카로운 shatter + glassy crackle (쩌적! 차각!)
+    _hitIce() {
+        // 고역 square shatter
+        tone({ freq: 2800, freqEnd: 1200, duration: 0.10, type: 'square',   volume: 0.7 });
+        tone({ freq: 3400, freqEnd: 1800, duration: 0.07, type: 'triangle', volume: 0.45, startAt: 0.04 });
+        // 잔향 ring
+        tone({ freq: 4200, freqEnd: 2500, duration: 0.12, type: 'sine',     volume: 0.30, startAt: 0.06 });
+        // 짧고 날카로운 노이즈 (얼음 부서짐)
+        noise({ duration: 0.06, volume: 0.85 });
+        noise({ duration: 0.05, volume: 0.55, startAt: 0.05 });
+    }
+
+    // 철판: 무거운 metallic clang + 잔향 (창! 캉!)
+    _hitIron() {
+        // 메인 clang (날카로운 square)
+        tone({ freq: 1600, freqEnd: 900, duration: 0.14, type: 'square',   volume: 0.9 });
+        // 옥타브 위 sine 잔향 (금속 울림)
+        tone({ freq: 3200, freqEnd: 2000, duration: 0.30, type: 'sine',    volume: 0.45, startAt: 0.02 });
+        // 깊은 sub (무게감)
+        tone({ freq: 100,  freqEnd: 50,  duration: 0.20, type: 'sine',     volume: 0.6 });
+        // 짧은 노이즈
+        noise({ duration: 0.06, volume: 0.7 });
+    }
+
+    // 두개골: 텅 빈 hollow boom + 짧은 크랙 (텅! 둑!)
+    _hitSkull() {
+        // 두꺼운 hollow sine
+        tone({ freq: 180, freqEnd: 70,  duration: 0.22, type: 'sine',     volume: 0.95 });
+        // 짧은 크랙 (square)
+        tone({ freq: 600, freqEnd: 300, duration: 0.06, type: 'square',   volume: 0.55 });
+        // 깊은 sub-boom (텅 빈 공명)
+        tone({ freq: 80,  freqEnd: 40,  duration: 0.30, type: 'sine',     volume: 0.7 });
+        // 마른 노이즈
+        noise({ duration: 0.10, volume: 0.7 });
+    }
+
+    // 항아리: 도자기 산산조각 + 짤랑 (쨍그랑!)
+    _hitPot() {
+        // 도자기 깨짐 - 다중 고음 square (사방으로 튀는 느낌)
+        tone({ freq: 1800, freqEnd: 900,  duration: 0.10, type: 'square',   volume: 0.7 });
+        tone({ freq: 2400, freqEnd: 1500, duration: 0.08, type: 'triangle', volume: 0.55, startAt: 0.03 });
+        tone({ freq: 1300, freqEnd: 700,  duration: 0.12, type: 'square',   volume: 0.5, startAt: 0.06 });
+        // 흙 갈라짐 노이즈
+        noise({ duration: 0.14, volume: 0.85 });
+    }
+
+    // 수정: 맑은 ring + 결정 부서짐 (찰랑! 챙!)
+    _hitCrystal() {
+        // 맑은 ring (sine + 5도 화음)
+        tone({ freq: 2200, freqEnd: 1400, duration: 0.18, type: 'sine',     volume: 0.65 });
+        tone({ freq: 3300, freqEnd: 2100, duration: 0.18, type: 'sine',     volume: 0.40 });
+        // 결정 부서짐 square 잔향
+        tone({ freq: 4400, freqEnd: 2800, duration: 0.10, type: 'triangle', volume: 0.30, startAt: 0.05 });
+        // 짧고 거친 노이즈 (결정 갈라짐)
+        noise({ duration: 0.05, volume: 0.7 });
+    }
+
+    // 11) 장애물 파괴 완료 - "콰광!" + 보너스 chime (사용자: 더 거칠게)
     playObstacleBreakSound() {
         if (sfxState.muted) return;
-        // 파괴 임팩트
-        tone({ freq: 150, freqEnd: 50, duration: 0.18, type: 'sawtooth', volume: 0.85 });
-        noise({ duration: 0.20, volume: 0.95 });
-        // 0.15s 후 보너스 chime (보물 확률 +20% 알림)
-        tone({ freq: 800,  duration: 0.10, type: 'sine', volume: 0.5, startAt: 0.20 });
-        tone({ freq: 1200, duration: 0.18, type: 'sine', volume: 0.55, startAt: 0.30 });
-        tone({ freq: 1600, duration: 0.22, type: 'sine', volume: 0.55, startAt: 0.40 });
+        // 강력 파괴 임팩트 (sawtooth 디센드 + sub-boom)
+        tone({ freq: 250, freqEnd: 60,  duration: 0.30, type: 'sawtooth', volume: 1.0 });
+        tone({ freq: 60,  freqEnd: 25,  duration: 0.40, type: 'sine',     volume: 0.85 });
+        // 두꺼운 거친 노이즈
+        noise({ duration: 0.32, volume: 1.0 });
+        noise({ duration: 0.18, volume: 0.7, startAt: 0.10 });
+        // 보너스 chime (보물 확률 +20% 알림)
+        tone({ freq: 800,  duration: 0.10, type: 'sine', volume: 0.5, startAt: 0.30 });
+        tone({ freq: 1200, duration: 0.18, type: 'sine', volume: 0.55, startAt: 0.40 });
+        tone({ freq: 1600, duration: 0.22, type: 'sine', volume: 0.55, startAt: 0.50 });
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -674,6 +782,111 @@ export default class SoundManager {
         if (sfxState.muted) return;
         tone({ freq: 200, freqEnd: 80, duration: 0.80, type: 'sawtooth', volume: 0.5 });
         tone({ freq: 100, freqEnd: 50, duration: 0.80, type: 'sine',     volume: 0.4 });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 16-b) 잔상 플래시 (foreshadow) - 미스터리한 약한 종소리
+    //   초기 레이어에서 1.5% 확률로 발생. "어? 방금 뭐였지?" 잔상감 유발용.
+    //   3음 짧은 사인 화음으로 띵~ (코인보다 어둡고 잔향)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playForeshadowChime() {
+        if (sfxState.muted) return;
+        // 어두운 base + 5도 위 + 옥타브 위 (살짝 비어있는 느낌)
+        tone({ freq: 660, duration: 0.45, type: 'sine', volume: 0.30 });
+        tone({ freq: 990, duration: 0.45, type: 'sine', volume: 0.20, startAt: 0.02 });
+        tone({ freq: 1320, duration: 0.50, type: 'sine', volume: 0.12, startAt: 0.05 });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 16-c) 다음 레이어 프리뷰 - 부드러운 "다음으로~" 상승 화음
+    //   레이어 클리어 후 1초 동안 다음 배경을 살짝 비추며 동시에 재생
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playLayerPreviewSound() {
+        if (sfxState.muted) return;
+        const notes = [523, 659, 784, 988];   // C5 → E5 → G5 → B5 (꿈결 같은 상승)
+        notes.forEach((f, i) => {
+            tone({ freq: f, duration: 0.40, type: 'sine',     volume: 0.35, startAt: i * 0.10 });
+            tone({ freq: f * 2, duration: 0.40, type: 'sine', volume: 0.18, startAt: i * 0.10 });
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 17) 에너지 드링크 캐치 - "꿀꺽! 두근!" (등급별 화려)
+    //   common: 짧은 꿀꺽 1번
+    //   rare: 꿀꺽 + 짧은 chime
+    //   epic: 꿀꺽 + 상승 3음
+    //   legendary: 꿀꺽 + 상승 4음 + 5도 화음
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playDrinkCatchSound(rarity = 'common') {
+        if (sfxState.muted) return;
+        // "꿀꺽" - 낮은 sine 빠른 디센드 + 노이즈 살짝
+        tone({ freq: 350, freqEnd: 120, duration: 0.18, type: 'sine', volume: 0.6 });
+        noise({ duration: 0.06, volume: 0.4, startAt: 0.05 });
+
+        // 등급별 chime 추가
+        if (rarity === 'common') {
+            tone({ freq: 700, duration: 0.18, type: 'sine', volume: 0.45, startAt: 0.18 });
+        } else if (rarity === 'rare') {
+            tone({ freq: 700,  duration: 0.10, type: 'sine', volume: 0.45, startAt: 0.18 });
+            tone({ freq: 1050, duration: 0.20, type: 'sine', volume: 0.45, startAt: 0.26 });
+        } else if (rarity === 'epic') {
+            const f = [600, 900, 1200];
+            f.forEach((fr, i) => {
+                tone({ freq: fr, duration: 0.16, type: 'sine', volume: 0.55, startAt: 0.18 + i * 0.08 });
+                tone({ freq: fr * 1.5, duration: 0.16, type: 'sine', volume: 0.25, startAt: 0.18 + i * 0.08 });
+            });
+        } else { // legendary
+            const f = [400, 600, 900, 1200];
+            f.forEach((fr, i) => {
+                tone({ freq: fr,       duration: 0.18, type: 'sine', volume: 0.55, startAt: 0.18 + i * 0.08 });
+                tone({ freq: fr * 1.5, duration: 0.18, type: 'sine', volume: 0.30, startAt: 0.18 + i * 0.08 });
+                tone({ freq: fr * 2,   duration: 0.18, type: 'sine', volume: 0.18, startAt: 0.18 + i * 0.08 });
+            });
+            // 마무리 sparkle
+            tone({ freq: 1800, duration: 0.4, type: 'sine', volume: 0.35, startAt: 0.55 });
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 18) 기상 악화 (rain/snow/typhoon) - 12초간 분위기 사운드 + 시작 임팩트
+    //   playOnce 형식: 시작 임팩트 + 짧은 ambient 흉내
+    //   rain: 잔잔한 노이즈
+    //   snow: 휘이잉 vibrato
+    //   typhoon: 깊은 boom + 강한 wind noise
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playWeatherSound(type) {
+        if (sfxState.muted) return;
+        if (type === 'rain') {
+            // 천둥 임팩트
+            tone({ freq: 80, freqEnd: 35, duration: 0.6, type: 'sine', volume: 0.6 });
+            noise({ duration: 0.5, volume: 0.7 });
+            // 빗소리 흉내 (3번 분산 노이즈)
+            noise({ duration: 0.8, volume: 0.4, startAt: 0.6 });
+            noise({ duration: 1.0, volume: 0.35, startAt: 1.4 });
+            noise({ duration: 1.2, volume: 0.30, startAt: 2.4 });
+        } else if (type === 'snow') {
+            // 휘이잉 - 낮은 vibrato (찬 바람)
+            vibratoTone({
+                baseFreq: 220, vibratoFreq: 5, vibratoDepth: 80,
+                duration: 1.6, type: 'sine', volume: 0.45
+            });
+            // 두번째 휘이잉 (잔향)
+            vibratoTone({
+                baseFreq: 180, vibratoFreq: 4, vibratoDepth: 60,
+                duration: 1.2, type: 'sine', volume: 0.30, startAt: 1.4
+            });
+        } else if (type === 'typhoon') {
+            // 깊은 sub-boom (위협)
+            tone({ freq: 60, freqEnd: 30, duration: 1.2, type: 'sawtooth', volume: 0.65 });
+            // 강한 vibrato (포효)
+            vibratoTone({
+                baseFreq: 300, vibratoFreq: 12, vibratoDepth: 150,
+                duration: 1.4, type: 'sawtooth', volume: 0.5, startAt: 0.2
+            });
+            // 거친 노이즈 (강풍)
+            noise({ duration: 1.0, volume: 0.85 });
+            noise({ duration: 0.8, volume: 0.6, startAt: 0.9 });
+        }
     }
 
     // 16) SOUL-OUT 회복 완료 (다시 파기 시작)

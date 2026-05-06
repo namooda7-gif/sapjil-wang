@@ -25,7 +25,8 @@ export const LAYERS = [
         order: 1,
 
         characterY: 0.78,              // 캐릭터 발이 닿는 화면 높이 비율 (배경 땅 라인)
-        requiredDigs: 100,
+        // 사용자 스펙: 튜토리얼 레이어는 빠른 첫 클리어 도파민 확보 → 100 → 50
+        requiredDigs: 50,
         bgColor: 0x6b4423,        // Phaser hex (진한 흙갈색)
         bgColorHex: '#6b4423',
         groundColor: 0x4a2f1a,    // 땅 부분 진한색
@@ -33,23 +34,23 @@ export const LAYERS = [
 
         comicEvent: {
             trigger: 'dig_count',
-            triggerAt: [50, 100],          // 절반/완료 시점에 등장
+            triggerAt: [25, 50],           // 50탭 기준 절반(25)/완료(50) 시점
             soundType: 'foreman',          // SoundManager.playComicEventSound 키
-            npc: '감리사 아저씨',
-            message: '야! 거기 뭐해!',
+            npc: '관리소장',
+            message: '얌마! 거기 뭐해!',
             emoji: '👷',
             action: 'shake_camera',
             duration: 1500
         },
 
         treasures: [
-            { id: 't_001_01', name: '녹슨 망치',         rarity: 'common',    reward: { coin: 30 },                desc: '"누가 흘렸나?" 공사판의 흔적' },
-            { id: 't_001_02', name: '페트병 뚜껑',       rarity: 'common',    reward: { coin: 20 },                desc: '쓰레기인지 보물인지...' },
-            { id: 't_001_03', name: '500원 동전',        rarity: 'common',    reward: { coin: 50 },                desc: '오 진짜 돈이다!' },
-            { id: 't_001_04', name: '작업화 한 짝',      rarity: 'rare',      reward: { coin: 100, relic: 1 },     desc: '한 짝은 어디 갔어?' },
-            { id: 't_001_05', name: '막걸리 빈병',       rarity: 'rare',      reward: { coin: 150 },               desc: '아저씨들 야식의 흔적' },
-            { id: 't_001_06', name: '감리사의 안전모',   rarity: 'epic',      reward: { coin: 300, relic: 3 },     desc: '"내 안전모! 어디갔지?"' },
-            { id: 't_001_07', name: '황금 못',           rarity: 'legendary', reward: { coin: 1000, diamond: 1 },  desc: '왜 못이 황금이지...?' }
+            { id: 't_001_01', emoji: '🔨', name: '녹슨 망치',         rarity: 'common',    reward: { coin: 30 },                desc: '"누가 흘렸나?" 공사판의 흔적' },
+            { id: 't_001_02', emoji: '🧴', name: '페트병 뚜껑',       rarity: 'common',    reward: { coin: 20 },                desc: '쓰레기인지 보물인지...' },
+            { id: 't_001_03', emoji: '🪙', name: '500원 동전',        rarity: 'common',    reward: { coin: 50 },                desc: '오 진짜 돈이다!' },
+            { id: 't_001_04', emoji: '👞', name: '작업화 한 짝',      rarity: 'rare',      reward: { coin: 100, relic: 1 },     desc: '한 짝은 어디 갔어?' },
+            { id: 't_001_05', emoji: '🍶', name: '막걸리 빈병',       rarity: 'rare',      reward: { coin: 150 },               desc: '아저씨들 야식의 흔적' },
+            { id: 't_001_06', emoji: '⛑️', name: '감리사의 안전모',   rarity: 'epic',      reward: { coin: 300, relic: 3 },     desc: '"내 안전모! 어디갔지?"' },
+            { id: 't_001_07', emoji: '🔩', name: '황금 못',           rarity: 'legendary', reward: { coin: 1000, diamond: 1 },  desc: '왜 못이 황금이지...?' }
         ],
 
         clearReward: { coin: 200, relic: 5, diamond: 0 },
@@ -81,20 +82,20 @@ export const LAYERS = [
             triggerAt: [70, 140, 200],
             soundType: 'pe_teacher',
             npc: '체육선생님',
-            message: '삑- 삑삑! 거기서 뭐 해!',
+            message: '삑- 삑삑! 거기서 뭐 하쇼!',
             emoji: '🏃‍♂️',
             action: 'whistle_sound',
             duration: 1500
         },
 
         treasures: [
-            { id: 't_002_01', name: '잃어버린 도시락 통', rarity: 'common',    reward: { coin: 40 },               desc: '엄마가 싸주신 그 도시락... 아직도 김치냄새가...' },
-            { id: 't_002_02', name: '체육복 한 짝',       rarity: 'common',    reward: { coin: 30 },               desc: '체육시간 종 치고 사라진 그것' },
-            { id: 't_002_03', name: '0점 시험지',         rarity: 'common',    reward: { coin: 60 },               desc: '왜 굳이 묻었어...?' },
-            { id: 't_002_04', name: '운동회 청군 머리띠', rarity: 'rare',      reward: { coin: 120, relic: 1 },    desc: '"청군 이겨라!"의 추억' },
-            { id: 't_002_05', name: '사라진 축구공',      rarity: 'rare',      reward: { coin: 180, relic: 2 },    desc: '그날 슛이 너무 강했나...' },
-            { id: 't_002_06', name: '교장선생님 훈장',    rarity: 'epic',      reward: { coin: 400, relic: 4 },    desc: '도대체 왜 묻혀있는 거지?' },
-            { id: 't_002_07', name: '타임캡슐 1995',      rarity: 'legendary', reward: { coin: 1500, diamond: 2 }, desc: '졸업생들의 약속이 잠든 곳' }
+            { id: 't_002_01', emoji: '🍱', name: '잃어버린 도시락 통', rarity: 'common',    reward: { coin: 40 },               desc: '엄마가 싸주신 그 도시락... 아직도 김치냄새가...' },
+            { id: 't_002_02', emoji: '👕', name: '체육복 한 짝',       rarity: 'common',    reward: { coin: 30 },               desc: '체육시간 종 치고 사라진 그것' },
+            { id: 't_002_03', emoji: '📝', name: '0점 시험지',         rarity: 'common',    reward: { coin: 60 },               desc: '왜 굳이 묻었어...?' },
+            { id: 't_002_04', emoji: '🎀', name: '운동회 청군 머리띠', rarity: 'rare',      reward: { coin: 120, relic: 1 },    desc: '"청군 이겨라!"의 추억' },
+            { id: 't_002_05', emoji: '⚽', name: '사라진 축구공',      rarity: 'rare',      reward: { coin: 180, relic: 2 },    desc: '그날 슛이 너무 강했나...' },
+            { id: 't_002_06', emoji: '🏅', name: '교장선생님 훈장',    rarity: 'epic',      reward: { coin: 400, relic: 4 },    desc: '도대체 왜 묻혀있는 거지?' },
+            { id: 't_002_07', emoji: '⏳', name: '타임캡슐 1995',      rarity: 'legendary', reward: { coin: 1500, diamond: 2 }, desc: '졸업생들의 약속이 잠든 곳' }
         ],
 
         clearReward: { coin: 500, relic: 8, diamond: 0 },
@@ -126,20 +127,20 @@ export const LAYERS = [
             triggerAt: [100, 200, 350],
             soundType: 'security',
             npc: '경비 아저씨',
-            message: '학생! 거기서 뭐 하는 거야!! 관리실로!',
+            message: '이봐! 거기서 뭐 하는 거야!! 관리실로!',
             emoji: '👮',
             action: 'flashlight',
             duration: 2000
         },
 
         treasures: [
-            { id: 't_003_01', name: '잃어버린 택배',        rarity: 'common',    reward: { coin: 50 },               desc: '"고객님께서 부재중이라..." 그게 여기 있었네' },
-            { id: 't_003_02', name: '강아지 인식표',        rarity: 'common',    reward: { coin: 40 },               desc: '"몽실이"... 잘 있니?' },
-            { id: 't_003_03', name: '아이 장난감 자동차',   rarity: 'common',    reward: { coin: 60 },               desc: '꼬마 손에서 떨어진 보물' },
-            { id: 't_003_04', name: '베란다에서 떨어진 양말', rarity: 'rare',    reward: { coin: 130, relic: 1 },    desc: '바람의 장난' },
-            { id: 't_003_05', name: '경비실 명패',          rarity: 'rare',      reward: { coin: 200, relic: 2 },    desc: '"경비 책임자 김씨"... 누가 묻은 거야?' },
-            { id: 't_003_06', name: '관리비 영수증 뭉치',   rarity: 'epic',      reward: { coin: 500, relic: 5 },    desc: '"미납 3개월"... 하지만 보물!' },
-            { id: 't_003_07', name: '입주민 회장 도장',     rarity: 'legendary', reward: { coin: 2000, diamond: 3 }, desc: '권력의 상징이 묻혀있다니!' }
+            { id: 't_003_01', emoji: '📦', name: '잃어버린 택배',        rarity: 'common',    reward: { coin: 50 },               desc: '"고객님께서 부재중이라..." 그게 여기 있었네' },
+            { id: 't_003_02', emoji: '🐶', name: '강아지 인식표',        rarity: 'common',    reward: { coin: 40 },               desc: '"몽실이"... 잘 있니?' },
+            { id: 't_003_03', emoji: '🚗', name: '아이 장난감 자동차',   rarity: 'common',    reward: { coin: 60 },               desc: '꼬마 손에서 떨어진 보물' },
+            { id: 't_003_04', emoji: '🧦', name: '베란다에서 떨어진 양말', rarity: 'rare',    reward: { coin: 130, relic: 1 },    desc: '바람의 장난' },
+            { id: 't_003_05', emoji: '🪪', name: '경비실 명패',          rarity: 'rare',      reward: { coin: 200, relic: 2 },    desc: '"경비 책임자 김씨"... 누가 묻은 거야?' },
+            { id: 't_003_06', emoji: '🧾', name: '관리비 영수증 뭉치',   rarity: 'epic',      reward: { coin: 500, relic: 5 },    desc: '"미납 3개월"... 하지만 보물!' },
+            { id: 't_003_07', emoji: '📜', name: '입주민 회장 도장',     rarity: 'legendary', reward: { coin: 2000, diamond: 3 }, desc: '권력의 상징이 묻혀있다니!' }
         ],
 
         clearReward: { coin: 1000, relic: 12, diamond: 1 },
@@ -171,20 +172,20 @@ export const LAYERS = [
             triggerAt: [150, 300, 450, 550],
             soundType: 'sauna_owner',
             npc: '찜질방 사장님',
-            message: '아니 손님!! 바닥을!! 어떻게 책임질 거야!!',
+            message: '아니 미친!! 바닥을!! 물어내!!',
             emoji: '🧖',
             action: 'steam_burst',
             duration: 2000
         },
 
         treasures: [
-            { id: 't_004_01', name: '누가 흘린 양말',          rarity: 'common',    reward: { coin: 60 },               desc: '땀냄새가... 진하다' },
-            { id: 't_004_02', name: '식혜 빈병',               rarity: 'common',    reward: { coin: 50 },               desc: '단군 이래 최고의 음료' },
-            { id: 't_004_03', name: '바싹 마른 삶은 계란',     rarity: 'common',    reward: { coin: 80 },               desc: '몇 년이나 묻혀있던 거야...?' },
-            { id: 't_004_04', name: '잃어버린 안경',           rarity: 'rare',      reward: { coin: 180, relic: 2 },    desc: '"내 안경 어디갔지?" 여기 있었네!' },
-            { id: 't_004_05', name: '구겨진 만원 지폐',        rarity: 'rare',      reward: { coin: 300, relic: 3 },    desc: '주머니에서 흘렸나봐' },
-            { id: 't_004_06', name: '찜질방 단골 회원증',      rarity: 'epic',      reward: { coin: 700, relic: 6 },    desc: '"VIP" 도장이 찍힌 그것' },
-            { id: 't_004_07', name: '사장님의 비밀 금고열쇠',  rarity: 'legendary', reward: { coin: 3000, diamond: 5 }, desc: '왜 바닥에 묻혀있었지...?' }
+            { id: 't_004_01', emoji: '🧦', name: '누가 흘린 양말',          rarity: 'common',    reward: { coin: 60 },               desc: '땀냄새가... 진하다' },
+            { id: 't_004_02', emoji: '🥤', name: '식혜 빈병',               rarity: 'common',    reward: { coin: 50 },               desc: '단군 이래 최고의 음료' },
+            { id: 't_004_03', emoji: '🥚', name: '바싹 마른 삶은 계란',     rarity: 'common',    reward: { coin: 80 },               desc: '몇 년이나 묻혀있던 거야...?' },
+            { id: 't_004_04', emoji: '👓', name: '잃어버린 안경',           rarity: 'rare',      reward: { coin: 180, relic: 2 },    desc: '"내 안경 어디갔지?" 여기 있었네!' },
+            { id: 't_004_05', emoji: '💵', name: '구겨진 만원 지폐',        rarity: 'rare',      reward: { coin: 300, relic: 3 },    desc: '주머니에서 흘렸나봐' },
+            { id: 't_004_06', emoji: '🎫', name: '찜질방 단골 회원증',      rarity: 'epic',      reward: { coin: 700, relic: 6 },    desc: '"VIP" 도장이 찍힌 그것' },
+            { id: 't_004_07', emoji: '🗝️', name: '사장님의 비밀 금고열쇠',  rarity: 'legendary', reward: { coin: 3000, diamond: 5 }, desc: '왜 바닥에 묻혀있었지...?' }
         ],
 
         clearReward: { coin: 2000, relic: 18, diamond: 2 },
@@ -215,21 +216,21 @@ export const LAYERS = [
             trigger: 'dig_count',
             triggerAt: [200, 400, 600, 800],
             soundType: 'military',
-            npc: '훈련 교관',
-            message: '이 녀석이!! 또 삽질이야?! 원위치!!',
+            npc: '교관',
+            message: '이 녀석이!! 또 삽질이야?! 대가리 박어!!',
             emoji: '🎖️',
             action: 'shake_camera_strong',
             duration: 2500
         },
 
         treasures: [
-            { id: 't_005_01', name: '군용 수통',              rarity: 'common',    reward: { coin: 80 },                desc: '물이 한 방울 남아있다... 마시지마' },
-            { id: 't_005_02', name: '잃어버린 군번줄',        rarity: 'common',    reward: { coin: 70 },                desc: '"이병 김XX 19-XXXXX"' },
-            { id: 't_005_03', name: '야전삽 부러진 조각',     rarity: 'common',    reward: { coin: 100 },               desc: '동지여... 너도 삽질했구나' },
-            { id: 't_005_04', name: '전투화 한 짝',           rarity: 'rare',      reward: { coin: 250, relic: 3 },     desc: '훈련병의 한이 서려있다' },
-            { id: 't_005_05', name: '훈련병 일기장',          rarity: 'rare',      reward: { coin: 400, relic: 4 },     desc: '"D-547... 너무 힘들다..."' },
-            { id: 't_005_06', name: '황금 계급장',            rarity: 'epic',      reward: { coin: 900, relic: 8 },     desc: '대장님의 것...?' },
-            { id: 't_005_07', name: '비밀 작전 명령서',       rarity: 'legendary', reward: { coin: 4000, diamond: 7 },  desc: '"극비 - 절대 누설 금지" ...읽지마' }
+            { id: 't_005_01', emoji: '💧', name: '군용 수통',              rarity: 'common',    reward: { coin: 80 },                desc: '물이 한 방울 남아있다... 마시지마' },
+            { id: 't_005_02', emoji: '🪪', name: '잃어버린 군번줄',        rarity: 'common',    reward: { coin: 70 },                desc: '"이병 김XX 19-XXXXX"' },
+            { id: 't_005_03', emoji: '🪓', name: '야전삽 부러진 조각',     rarity: 'common',    reward: { coin: 100 },               desc: '동지여... 너도 삽질했구나' },
+            { id: 't_005_04', emoji: '🥾', name: '전투화 한 짝',           rarity: 'rare',      reward: { coin: 250, relic: 3 },     desc: '훈련병의 한이 서려있다' },
+            { id: 't_005_05', emoji: '📓', name: '훈련병 일기장',          rarity: 'rare',      reward: { coin: 400, relic: 4 },     desc: '"D-547... 너무 힘들다..."' },
+            { id: 't_005_06', emoji: '🎖️', name: '황금 계급장',            rarity: 'epic',      reward: { coin: 900, relic: 8 },     desc: '대장님의 것...?' },
+            { id: 't_005_07', emoji: '📜', name: '비밀 작전 명령서',       rarity: 'legendary', reward: { coin: 4000, diamond: 7 },  desc: '"극비 - 절대 누설 금지" ...읽지마' }
         ],
 
         clearReward: { coin: 4000, relic: 25, diamond: 3 },
@@ -261,20 +262,20 @@ export const LAYERS = [
             triggerAt: [200, 500, 800, 1100],
             soundType: 'fans',
             npc: '팬덤 지박령들',
-            message: '"오빠 사진 묻혔으면 어떡해!!" "당장 그만!!"',
+            message: '오빠 사진. 안돼!! 그만!!',
             emoji: '💜',
             action: 'lightstick_flash',
             duration: 3000
         },
 
         treasures: [
-            { id: 't_006_01', name: '응원봉 배터리',          rarity: 'common',    reward: { coin: 100 },               desc: '"방전돼서 버렸나봐"' },
-            { id: 't_006_02', name: '떨어진 포토카드',        rarity: 'common',    reward: { coin: 90 },                desc: '"누구 포카지... 잘생겼다"' },
-            { id: 't_006_03', name: '굿즈 키링',              rarity: 'common',    reward: { coin: 120 },               desc: '"한정판이었는데!!"' },
-            { id: 't_006_04', name: '쓰다 만 팬레터',         rarity: 'rare',      reward: { coin: 280, relic: 3 },     desc: '"오빠 사랑해... (이하생략)"' },
-            { id: 't_006_05', name: '사인이 절반 들어간 앨범', rarity: 'rare',      reward: { coin: 450, relic: 5 },     desc: '"왜 절반만 사인했지...?"' },
-            { id: 't_006_06', name: '멤버 입었던 티셔츠',     rarity: 'epic',      reward: { coin: 1100, relic: 10 },   desc: '"진짜야??? 이거 진짜야???"' },
-            { id: 't_006_07', name: '레전드 데뷔쇼 티켓',     rarity: 'legendary', reward: { coin: 5000, diamond: 10 }, desc: '"이거 경매가 천만원이야..."' }
+            { id: 't_006_01', emoji: '🔋', name: '응원봉 배터리',          rarity: 'common',    reward: { coin: 100 },               desc: '"방전돼서 버렸나봐"' },
+            { id: 't_006_02', emoji: '🎴', name: '떨어진 포토카드',        rarity: 'common',    reward: { coin: 90 },                desc: '"누구 포카지... 잘생겼다"' },
+            { id: 't_006_03', emoji: '🔑', name: '굿즈 키링',              rarity: 'common',    reward: { coin: 120 },               desc: '"한정판이었는데!!"' },
+            { id: 't_006_04', emoji: '💌', name: '쓰다 만 팬레터',         rarity: 'rare',      reward: { coin: 280, relic: 3 },     desc: '"오빠 사랑해... (이하생략)"' },
+            { id: 't_006_05', emoji: '💿', name: '사인이 절반 들어간 앨범', rarity: 'rare',      reward: { coin: 450, relic: 5 },     desc: '"왜 절반만 사인했지...?"' },
+            { id: 't_006_06', emoji: '👕', name: '멤버 입었던 티셔츠',     rarity: 'epic',      reward: { coin: 1100, relic: 10 },   desc: '"진짜야??? 이거 진짜야???"' },
+            { id: 't_006_07', emoji: '🎫', name: '레전드 데뷔쇼 티켓',     rarity: 'legendary', reward: { coin: 5000, diamond: 10 }, desc: '"이거 경매가 천만원이야..."' }
         ],
 
         clearReward: { coin: 8000, relic: 35, diamond: 5 },

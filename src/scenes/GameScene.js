@@ -95,7 +95,9 @@ const HOLE_TAPS_TO_MAX       = 100;      // (현재 미사용, 향후 이징용�
 const HOLE_WIDTH_RATIO       = 0.85;     // 화면 폭 대비 구덩이 너비 (0.75 → 0.85: 좌우도 더 넓게)
 const HOLE_MIN_HEIGHT        = 80;       // 최소 높이
 const HOLE_MAX_HEIGHT        = 120;      // (현재 미사용)
-const HOLE_Y_OFFSET          = 35;       // 캐릭터 발 아래로 구덩이 바닥이 떨어지는 오프셋
+// 사용자 요청: 굴 바닥이 캐릭터 발과 거의 비슷한 높이여야 함 (이전 35 → 0)
+// hole.png는 origin (0.5, 1.0)이라 holeImage.y = character.y면 이미지 하단=발 라인
+const HOLE_Y_OFFSET          = 0;        // 캐릭터 발 라인에 굴 바닥 정렬
 const HOLE_PADDING_FACTOR    = 1.25;     // 비례 보정: 이미지 상단 padding을 깊이에 비례해 가림
                                          //   → 깊이 깊어져도 갭 안 생김 (근본 해결)
                                          //   → padding 비율 추정값: 1.25 = 20% padding 가정
@@ -154,10 +156,16 @@ const SHOVEL_HAPTIC_INTENSITY = ['light', 'medium', 'heavy', 'heavy'];
 const OBSTACLE_TAP_INTERVAL  = 20;        // 매 N탭마다 무조건 등장 (확률 X)
 const OBSTACLE_BOOST_MS      = 10000;     // 보물 확률 부스트 지속 (10초)
 const OBSTACLE_BOOST_AMOUNT  = 0.20;      // +20% 추가 확률
+// type별로 sound 키를 부여해 SoundManager.playObstacleHitSound(type)에서 거친 사운드 분기
 const OBSTACLE_TYPES = {
-    rock: { emoji: '🪨', name: '단단한 바위',  tapsRequired: 3, tint: 0x808080 },
-    bone: { emoji: '🦴', name: '거대한 뼈',    tapsRequired: 5, tint: 0xf0e6c8 },
-    root: { emoji: '🪵', name: '굵은 뿌리',    tapsRequired: 4, tint: 0x6b4423 }
+    rock:    { emoji: '🪨', name: '단단한 바위',    tapsRequired: 3, tint: 0x808080 },
+    bone:    { emoji: '🦴', name: '거대한 뼈',      tapsRequired: 5, tint: 0xf0e6c8 },
+    root:    { emoji: '🪵', name: '굵은 뿌리',      tapsRequired: 4, tint: 0x6b4423 },
+    ice:     { emoji: '🧊', name: '얼음 덩어리',    tapsRequired: 4, tint: 0x9bd4e4 },
+    iron:    { emoji: '🔩', name: '낡은 철판',      tapsRequired: 6, tint: 0x4a4a4a },
+    skull:   { emoji: '💀', name: '수상한 두개골',  tapsRequired: 5, tint: 0xe8e0c8 },
+    pot:     { emoji: '🏺', name: '깨진 항아리',    tapsRequired: 3, tint: 0xa0522d },
+    crystal: { emoji: '💎', name: '수정 결정체',    tapsRequired: 5, tint: 0x7df9ff }
 };
 const OBSTACLE_KEYS = Object.keys(OBSTACLE_TYPES);
 
@@ -174,13 +182,13 @@ const MONOLOGUE_LINES_GENERAL = [
     '이게 뭐가 나오려나...',
     '퇴근하고 싶다...',
     '사장님 몰래 파는 중...',
-    '왜 하고 있는 거지...'
+    '왜 파는 거지...'
 ];
 const MONOLOGUE_LINES_COMBO = {
     10:  '나 잘하고 있는 거지?',
     30:  '삽질왕이 될 것 같아!',
     50:  '멈출 수가 없어!!',
-    100: '나는 삽질왕이다!!!'
+    100: '아엠 킹 오브 삽질!!!'
 };
 // soundType(layers.js) → 캐릭터 반응 라인
 const NPC_REACTIONS = {
@@ -191,7 +199,67 @@ const NPC_REACTIONS = {
     military:    '충성! 열심히 하겠습니다!',
     fans:        '저 팬이에요 진짜로요!'
 };
-const BURNOUT_LINE     = '더 이상 못 파겠다...';
+const BURNOUT_LINE     = '더 이상 못 파...';
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// foreshadow (잔상 플래시) — 초기 레이어(1~3)에서만 가끔 깜빡이며
+// 후속 레이어(찜질방 황금/콘서트장 보라/군부대 카키 등) 색을 살짝 보여줌
+//   - 보상 X, 시각만, 호기심 유발용
+//   - 1.5% / 탭, 30탭 쿨다운
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const FORESHADOW_CHANCE         = 0.015;     // 1.5%
+const FORESHADOW_COOLDOWN_TAPS  = 30;
+const FORESHADOW_MAX_LAYER_ORDER = 3;        // layer 1~3에서만 (4 이상은 진짜 그 레이어니까 노출 X)
+// 후속 레이어 컬러 팔레트 (찜질방 황금 / 군부대 카키 / 콘서트장 네온 보라 / 마지막은 신비 청록)
+const FORESHADOW_COLORS = [
+    { r: 255, g: 215, b:  60 },   // 찜질방 황금
+    { r: 130, g: 160, b:  80 },   // 군부대 카키
+    { r: 200, g:  90, b: 240 },   // 콘서트장 네온 보라
+    { r:  90, g: 220, b: 240 }    // 미래 레이어 신비 청록
+];
+const FORESHADOW_LINES = [
+    '어? 방금 뭐였지?',
+    '뭔가 번쩍였는데...',
+    '내 눈이 이상한가?'
+];
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 에너지 드링크 (패러디 — Google Play 글로벌 출시 trademark 회피)
+//   화면 위에서 캐릭터 머리로 떨어짐 → 자동 캐치 → 일정 시간 버프
+//   - 100탭마다 7% 확률로 등장, 등급은 weighted random
+//   - 같은 효과 재획득 시 지속시간 갱신 (스택 X)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const DRINK_SPAWN_INTERVAL = 100;
+const DRINK_SPAWN_CHANCE   = 0.07;
+const DRINK_TYPES = {
+    sapcas:    { name: '삽카스',   rarity: 'common',    emoji: '🥤', color: 0x4a9d3a, hex: '#4a9d3a', effect: 'coin',    durationMs: 30000, line: '어우 시원~ 삽카스!' },
+    hotsaps:   { name: '핫삽스',   rarity: 'rare',      emoji: '🧃', color: 0xff5544, hex: '#ff5544', effect: 'combo',   durationMs: 30000, line: '핫삽스! 손이 빨라진다!' },
+    redsap:    { name: '레드삽',   rarity: 'epic',      emoji: '🍹', color: 0x4499ff, hex: '#4499ff', effect: 'digMult', durationMs: 60000, line: '레드삽! 진행이 빠르다!' },
+    energasap: { name: '에너자삽', rarity: 'legendary', emoji: '⚡', color: 0xffd700, hex: '#ffd700', effect: 'all',     durationMs: 30000, line: '에너자삽! 무적이다!!!' }
+};
+const DRINK_RARITY_WEIGHTS = { sapcas: 60, hotsaps: 25, redsap: 12, energasap: 3 };
+const DRINK_BONUS = {
+    coin:    1.20,    // 코인 +20%
+    combo:   1.50,    // 콤보 윈도우 1.5배 (잘 안 끊김)
+    digMult: 1.50     // 진행 카운트 1.5배
+};
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 기상 악화 (실외 레이어 한정 코스메틱)
+//   100탭마다 4% 굴림 + 한 번 발동하면 12초 지속
+//   페널티 X (모바일 캐주얼 짜증 회피) — 시각/사운드/독백만
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const WEATHER_INTERVAL  = 100;
+const WEATHER_CHANCE    = 0.04;
+const WEATHER_DURATION  = 12000;
+// 실내 레이어 (날씨 발동 X)
+const WEATHER_INDOOR_LAYERS = new Set(['layer_004']);   // 찜질방
+const WEATHER_TYPES = {
+    rain:    { name: '비바람', tint: 0x2244aa, tintAlpha: 0.25, line: '비가 오고 지랄이야...',     particleColor: 0xaaccff },
+    snow:    { name: '눈보라', tint: 0xc0d4e8, tintAlpha: 0.30, line: '춥다... 손가락 얼겠어',      particleColor: 0xffffff },
+    typhoon: { name: '태풍',   tint: 0x111133, tintAlpha: 0.40, line: '이거 진짜 미친 거 아냐?',    particleColor: 0xbbccdd }
+};
+const WEATHER_KEYS = Object.keys(WEATHER_TYPES);
 const COLLAPSE_LINE    = '쓰러질 것 같아...';
 const JACKPOT_LINE     = '대박!!!';
 
@@ -225,7 +293,19 @@ export default class GameScene extends Phaser.Scene {
 
         this.layerOrder = 1;            // 현재 레이어 번호 (1~)
         this.layerData = null;          // layers.js의 현재 레이어 객체
-        this.digCount = 0;              // 현재 레이어 삽질 횟수
+        this.digCount = 0;              // 현재 레이어 삽질 횟수 (정수, 콤보+삽 배율 누적 후 floor)
+        this.digFraction = 0;           // 멀티플라이어 누적용 소수 캐리 (1탭=1.5배 같은 비정수 처리)
+        this.foreshadowCooldown = 0;    // foreshadow 발동 후 N탭 동안 재발동 차단
+
+        // ━━ 에너지 드링크 버프 ━━
+        // 각 효과의 만료 timestamp (this.time.now 기준). 0 = 비활성
+        this.tapsSinceLastDrinkCheck = 0;
+        this.activeBuffs = { coin: 0, combo: 0, digMult: 0 };
+        this.buffEdgeGlow = null;       // 화면 가장자리 글로우 graphics
+
+        // ━━ 기상 악화 ━━
+        this.tapsSinceLastWeatherCheck = 0;
+        this.weatherActive = null;      // { type, particles, tintRect, endsAt, cleanupTimer }
         this.combo = 0;                 // 연속 콤보
         this.lastDigTime = 0;           // 마지막 탭 시각
         this.comboWindow = 1500;        // 콤보 유지 시간(ms)
@@ -321,27 +401,27 @@ export default class GameScene extends Phaser.Scene {
 
         // (구) bgUnder 단색 Rectangle 제거됨 - 배경 이미지 자체에 지하 단면이 포함
 
-        // 상단 HUD (재화)
+        // 상단 HUD (재화) - depth 20: hole(4)/캐릭터(10)/흙더미(11) 위로 항상 노출
         this.coinText = this.add.text(30, 30, '🪙 0', {
             font: 'bold 32px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 4
-        });
+        }).setDepth(20);
         this.diamondText = this.add.text(30, 75, '💎 0', {
             font: 'bold 28px sans-serif', color: '#7df9ff', stroke: '#000', strokeThickness: 4
-        });
+        }).setDepth(20);
         this.relicText = this.add.text(30, 115, '🏺 0', {
             font: 'bold 28px sans-serif', color: '#d2691e', stroke: '#000', strokeThickness: 4
-        });
+        }).setDepth(20);
 
-        // 우상단: 레이어 정보
+        // 우상단: 레이어 정보 - depth 20: 깊이 파면 hole이 화면 위쪽까지 자라도 글자 가리지 않음
         this.layerText = this.add.text(width - 30, 30, '', {
             font: 'bold 28px sans-serif', color: '#ffffff', stroke: '#000', strokeThickness: 4
-        }).setOrigin(1, 0);
+        }).setOrigin(1, 0).setDepth(20);
         this.layerNameText = this.add.text(width - 30, 65, '', {
             font: '22px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 3
-        }).setOrigin(1, 0);
+        }).setOrigin(1, 0).setDepth(20);
         this.progressText = this.add.text(width - 30, 100, '', {
             font: '24px sans-serif', color: '#ffffff', stroke: '#000', strokeThickness: 3
-        }).setOrigin(1, 0);
+        }).setOrigin(1, 0).setDepth(20);
 
         // 캐릭터 이미지 (idle 상태로 시작, 상태에 따라 텍스처 자동 교체)
         // 위치: 화면 가로 중앙, 세로 y = CHARACTER_Y(=903) 고정
@@ -365,7 +445,7 @@ export default class GameScene extends Phaser.Scene {
             30,
             '박삽돌',
             { font: 'bold 24px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 4 }
-        ).setOrigin(0.5, 0);
+        ).setOrigin(0.5, 0).setDepth(20);
 
         // ━━━ 구덩이 이미지 + 흙더미 ━━━
         // 위치는 character.x / character.y(=발) 기준
@@ -453,9 +533,9 @@ export default class GameScene extends Phaser.Scene {
         this.dirtEmitter       = this.add.particles(0, 0, '__dirtParticle', dirtConfig).setDepth(15);
         this.dirtEmitterSquare = this.add.particles(0, 0, '__dirtSquare',   dirtConfig).setDepth(15);
 
-        // 콤보 표시 — 캐릭터 머리 위로 (캐릭터.y는 고정, 이 시점에선 displayHeight 계산 완료)
-        // y = character.y - displayHeight - 60 → 머리 위 60px 마진 (어떤 화면 비율에서도 안 겹침)
-        const comboY = this.character.y - this.character.displayHeight - 60;
+        // 콤보 표시 — 캐릭터 머리 위 충분히 위로 (혼잣말 말풍선과 겹치지 않도록 130px 마진)
+        // 말풍선은 머리 위 20px에 등장(높이 ~60~70px)이라 그 위로 더 띄워야 함
+        const comboY = this.character.y - this.character.displayHeight - 130;
         this.comboText = this.add.text(width / 2, comboY, '', {
             font: 'bold 56px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 6
         }).setOrigin(0.5).setAlpha(0);
@@ -585,7 +665,7 @@ export default class GameScene extends Phaser.Scene {
 
         // 콤보 텍스트 — 캐릭터 머리 위 위치 재동기화 (캐릭터.y 고정이라 X만 갱신해도 충분)
         if (this.comboText && this.character) {
-            const comboY = this.character.y - this.character.displayHeight - 60;
+            const comboY = this.character.y - this.character.displayHeight - 130;
             this.comboText.setPosition(width / 2, comboY);
         }
 
@@ -625,6 +705,14 @@ export default class GameScene extends Phaser.Scene {
             );
             this.drawSoulGauge();   // 사이즈 변경 후 즉시 재계산
         }
+
+        // 기상 tint 오버레이 사이즈/위치 갱신 (화면 회전 등)
+        if (this.weatherActive && this.weatherActive.tintRect) {
+            this.weatherActive.tintRect.setSize(width, height);
+            this.weatherActive.tintRect.setPosition(width / 2, height / 2);
+        }
+        // 버프 가장자리 글로우 재그림 (사이즈 바뀐 만큼 새 테두리)
+        this.refreshBuffEdgeGlow();
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -644,8 +732,17 @@ export default class GameScene extends Phaser.Scene {
         this.layerOrder = order;
         this.layerData = layer;
         this.digCount = 0;
+        this.digFraction = 0;           // 새 레이어 진입 시 fraction 캐리도 리셋
+        this.foreshadowCooldown = 0;    // foreshadow 쿨다운도 리셋
+        this.tapsSinceLastDrinkCheck = 0;
+        this.tapsSinceLastWeatherCheck = 0;
         this.combo = 0;
         this.firedComicTriggers.clear();
+
+        // 진행 중이던 날씨 즉시 종료 (다음 레이어가 실내일 수 있음 + 시각적으로 깔끔)
+        if (this.weatherActive) this.endWeather();
+        // 가장자리 글로우 즉시 재계산 (새 화면 사이즈 대응)
+        this.refreshBuffEdgeGlow();
 
         // 캐릭터 y는 모든 레이어에서 CHARACTER_Y(=903) 고정 (배경 이미지 지표면과 정확히 일치)
         // (구) bgUnder 단색 Rectangle 갱신 코드 제거 - 배경 이미지에 지하 단면 포함됨
@@ -756,8 +853,11 @@ export default class GameScene extends Phaser.Scene {
 
         const now = this.time.now;
 
-        // 콤보 판정
-        if (now - this.lastDigTime < this.comboWindow) {
+        // 콤보 판정 — 핫삽스 버프 활성 시 윈도우 1.5배 (잘 안 끊김)
+        const effComboWindow = (this.activeBuffs.combo > now)
+            ? this.comboWindow * DRINK_BONUS.combo
+            : this.comboWindow;
+        if (now - this.lastDigTime < effComboWindow) {
             this.combo += 1;
         } else {
             this.combo = 1;
@@ -765,7 +865,27 @@ export default class GameScene extends Phaser.Scene {
         }
         this.lastDigTime = now;
 
-        this.digCount += 1;
+        // ━━ 진행 카운트 멀티플라이어 (사용자 스펙) ━━
+        //   콤보:  10+ → 1.5x  /  50+ → 2.0x
+        //   삽:    나무 1.0 / 철 1.5 / 강철 2.0 / 미스릴+ 2.5
+        //   기본 1 × 콤보배율 × 삽배율 → 이번 탭의 카운트 가산값
+        // 비정수 처리: digFraction에 누적 → floor만 digCount에 반영
+        let digMult = 1.0;
+        if (this.combo >= 50)      digMult *= 2.0;
+        else if (this.combo >= 10) digMult *= 1.5;
+        const SHOVEL_DIG_MULT = [1.0, 1.5, 2.0, 2.5];
+        const sLvl = Math.min(this.currencyManager.shovelLevel || 0, SHOVEL_DIG_MULT.length - 1);
+        digMult *= SHOVEL_DIG_MULT[sLvl];
+        // 레드삽 버프 활성 시 진행 1.5배 추가
+        if (this.activeBuffs.digMult > now) digMult *= DRINK_BONUS.digMult;
+
+        this.digFraction += digMult;
+        const inc = Math.floor(this.digFraction);
+        this.digFraction -= inc;
+        const prevDigCount = this.digCount;
+        this.digCount += inc;
+
+        // 장애물 체크/혼잣말은 "탭 횟수" 기반 (배율 X) → 그대로 +1
         this.tapsSinceLastObstacleCheck += 1;
         this.tapsSinceLastMonologue     += 1;
 
@@ -852,6 +972,8 @@ export default class GameScene extends Phaser.Scene {
         let coinGain = Phaser.Math.Between(1, 5) + this.currencyManager.getShovelBonus();
         if (this.combo >= 10) coinGain = Math.floor(coinGain * 1.5);
         if (this.soulGauge < 10) coinGain = Math.max(1, Math.floor(coinGain * SOUL_BURNOUT_EFFICIENCY));
+        // 삽카스 버프 활성 시 코인 +20%
+        if (this.activeBuffs.coin > now) coinGain = Math.floor(coinGain * DRINK_BONUS.coin);
         this.currencyManager.addCoin(coinGain);
         // 코인 획득 사운드 (매 탭마다 살짝 다른 피치)
         this.soundManager.playCoinSound();
@@ -899,8 +1021,23 @@ export default class GameScene extends Phaser.Scene {
             this.soundManager.triggerHaptic(SHOVEL_HAPTIC_INTENSITY[lvl]);
         }
 
-        // 코믹 이벤트 트리거 체크
-        this.checkComicEvent();
+        // 코믹 이벤트 트리거 체크 (배율로 인해 카운트가 trigger를 넘어 점프할 수 있어 범위 검사)
+        this.checkComicEvent(prevDigCount);
+
+        // 잔상 플래시 (foreshadow) — 초기 레이어 1~3에서 가끔 후속 레이어 색 잠깐 깜빡
+        this.maybeTriggerForeshadow();
+
+        // 에너지 드링크 / 기상 악화 굴림
+        this.tapsSinceLastDrinkCheck   += 1;
+        this.tapsSinceLastWeatherCheck += 1;
+        if (this.tapsSinceLastDrinkCheck >= DRINK_SPAWN_INTERVAL) {
+            this.tapsSinceLastDrinkCheck = 0;
+            if (Math.random() < DRINK_SPAWN_CHANCE) this.spawnDrink();
+        }
+        if (this.tapsSinceLastWeatherCheck >= WEATHER_INTERVAL) {
+            this.tapsSinceLastWeatherCheck = 0;
+            if (Math.random() < WEATHER_CHANCE) this.maybeStartWeather();
+        }
 
         // ━━ SOUL 게이지 감소 (탭당 -0.5%) ━━
         this.drainSoul(SOUL_DRAIN_PER_TAP);
@@ -943,12 +1080,18 @@ export default class GameScene extends Phaser.Scene {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 코믹 이벤트 - layerData.comicEvent.triggerAt 도달 시 NPC 말풍선
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    checkComicEvent() {
+    checkComicEvent(prevDigCount = this.digCount - 1) {
         const event = this.layerData.comicEvent;
         if (!event || !event.triggerAt) return;
 
+        // 배율(콤보×삽) 적용으로 1탭에 카운트가 +2~+4 점프할 수 있음
+        // → 정확한 카운트 일치(===) 대신 "이번 탭으로 trigger를 통과했는가"로 판정
         for (const trigger of event.triggerAt) {
-            if (this.digCount === trigger && !this.firedComicTriggers.has(trigger)) {
+            if (
+                prevDigCount < trigger &&
+                this.digCount >= trigger &&
+                !this.firedComicTriggers.has(trigger)
+            ) {
                 this.firedComicTriggers.add(trigger);
                 this.showComicEvent(event);
                 return;
@@ -1129,10 +1272,11 @@ export default class GameScene extends Phaser.Scene {
         const container = this.add.container(startX, startY).setDepth(50);
 
         // 아이콘 (반지름 80, 이모지 100px = 이전 대비 약 3배)
+        // 발견된 보물별 고유 이모지(layers.js의 treasure.emoji) 사용 - 없으면 기본 🏺
         const iconRelX = -90;                 // 컨테이너 안에서 아이콘 중심 X
         const iconBg = this.add.circle(iconRelX, 0, 80, style.int, 1)
             .setStrokeStyle(6, 0xffffff);
-        const iconEmoji = this.add.text(iconRelX, 0, '🏺', {
+        const iconEmoji = this.add.text(iconRelX, 0, treasure.emoji || '🏺', {
             font: '100px sans-serif'
         }).setOrigin(0.5);
 
@@ -1470,6 +1614,256 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 에너지 드링크 (패러디 — 삽카스/핫삽스/레드삽/에너자삽)
+    //   화면 위에서 캐릭터로 떨어짐 → 자동 캐치 → 일정 시간 버프
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    spawnDrink() {
+        if (this.clearActive || this.treasurePopupActive || this.burnoutActive) return;
+        if (!this.character) return;
+
+        // 등급 weighted random
+        const totalW = Object.values(DRINK_RARITY_WEIGHTS).reduce((s, v) => s + v, 0);
+        let r = Math.random() * totalW;
+        let pickedKey = 'sapcas';
+        for (const [k, w] of Object.entries(DRINK_RARITY_WEIGHTS)) {
+            r -= w;
+            if (r <= 0) { pickedKey = k; break; }
+        }
+        const def = DRINK_TYPES[pickedKey];
+
+        const { width } = this.cameras.main;
+        const startX = this.character.x;
+        const startY = -80;
+        const endX   = this.character.x;
+        const endY   = this.character.y - this.character.displayHeight * 0.6;
+
+        const container = this.add.container(startX, startY).setDepth(46);
+
+        // 글로우 배경 원 (등급 색)
+        const glow = this.add.circle(0, 0, 50, def.color, 0.45).setStrokeStyle(4, def.color, 0.9);
+        const emoji = this.add.text(0, -4, def.emoji, { font: '54px sans-serif' }).setOrigin(0.5);
+        const nameTxt = this.add.text(0, 42, def.name, {
+            font: 'bold 20px sans-serif', color: def.hex,
+            stroke: '#000', strokeThickness: 4
+        }).setOrigin(0.5);
+        container.add([glow, emoji, nameTxt]);
+
+        // 약하게 회전하면서 포물선으로 머리 위까지 내려옴
+        this.tweens.add({
+            targets: container,
+            x: endX, y: endY,
+            duration: 900, ease: 'Cubic.in'
+        });
+        this.tweens.add({
+            targets: container,
+            angle: 360, duration: 900, ease: 'Linear'
+        });
+
+        // 도착 시 캐치 처리
+        this.time.delayedCall(900, () => this.catchDrink(pickedKey, container));
+    }
+
+    catchDrink(key, container) {
+        if (!container || !container.scene) return;
+        const def = DRINK_TYPES[key];
+        const now = this.time.now;
+        const expiresAt = now + def.durationMs;
+
+        // 효과 적용 (스택 X — 더 늦은 만료시간으로 갱신)
+        if (def.effect === 'all') {
+            this.activeBuffs.coin    = Math.max(this.activeBuffs.coin,    expiresAt);
+            this.activeBuffs.combo   = Math.max(this.activeBuffs.combo,   expiresAt);
+            this.activeBuffs.digMult = Math.max(this.activeBuffs.digMult, expiresAt);
+        } else {
+            this.activeBuffs[def.effect] = Math.max(this.activeBuffs[def.effect], expiresAt);
+        }
+
+        // 캐치 사운드 + 햅틱
+        this.soundManager.playDrinkCatchSound(def.rarity);
+        this.soundManager.triggerHaptic('medium');
+
+        // "꿀꺽" 흡입 애니 (캐릭터 위치로 빨려들어감)
+        this.tweens.add({
+            targets: container,
+            x: this.character.x,
+            y: this.character.y - this.character.displayHeight * 0.5,
+            scale: 0.2, alpha: 0,
+            duration: 200, ease: 'Quad.in',
+            onComplete: () => container.destroy()
+        });
+
+        // 캐릭터 surprise 표정 + 라인
+        this.triggerSurprise(800);
+        this.showCharacterMonologue(def.line);
+
+        // 화면 가장자리 글로우 갱신 (가장 화려한 활성 버프 색)
+        this.refreshBuffEdgeGlow();
+    }
+
+    // 가장자리 글로우 — 활성 버프 동안 화면 테두리에 등급 색 옅게
+    refreshBuffEdgeGlow() {
+        const now = this.time.now;
+        // 우선순위: legendary 색(에너자삽=all 활성 시) > epic > rare > common
+        let color = null;
+        if (this.activeBuffs.coin > now && this.activeBuffs.combo > now && this.activeBuffs.digMult > now) {
+            color = DRINK_TYPES.energasap.color;
+        } else if (this.activeBuffs.digMult > now) {
+            color = DRINK_TYPES.redsap.color;
+        } else if (this.activeBuffs.combo > now) {
+            color = DRINK_TYPES.hotsaps.color;
+        } else if (this.activeBuffs.coin > now) {
+            color = DRINK_TYPES.sapcas.color;
+        }
+
+        if (this.buffEdgeGlow) { this.buffEdgeGlow.destroy(); this.buffEdgeGlow = null; }
+        if (color == null) return;
+
+        const { width, height } = this.cameras.main;
+        const g = this.add.graphics().setDepth(19);  // HUD 텍스트(20) 아래, 게임월드 위
+        g.lineStyle(14, color, 0.55);
+        g.strokeRect(7, 7, width - 14, height - 14);
+        g.setAlpha(0.85);
+        // 펄스 (살짝 깜빡)
+        this.tweens.add({
+            targets: g,
+            alpha: { from: 0.85, to: 0.45 },
+            duration: 700, yoyo: true, repeat: -1
+        });
+        this.buffEdgeGlow = g;
+
+        // 가장 늦게 끝나는 buff에 맞춰 자동 정리
+        const latest = Math.max(this.activeBuffs.coin, this.activeBuffs.combo, this.activeBuffs.digMult);
+        const remain = Math.max(0, latest - now);
+        this.time.delayedCall(remain + 50, () => this.refreshBuffEdgeGlow());
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 기상 악화 (실외 한정 코스메틱) - rain/snow/typhoon
+    //   파티클 + tint 오버레이 + 독백, 12초 후 페이드아웃
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    maybeStartWeather() {
+        if (this.weatherActive) return;
+        if (this.clearActive || this.treasurePopupActive || this.burnoutActive) return;
+        if (!this.layerData) return;
+        if (WEATHER_INDOOR_LAYERS.has(this.layerData.id)) return;   // 찜질방 등 실내 X
+
+        const key = WEATHER_KEYS[Math.floor(Math.random() * WEATHER_KEYS.length)];
+        this.startWeather(key);
+    }
+
+    startWeather(key) {
+        const def = WEATHER_TYPES[key];
+        if (!def) return;
+        const { width, height } = this.cameras.main;
+
+        // 파티클용 흰 점 텍스처 (없으면 즉석 생성)
+        if (!this.textures.exists('__weatherDot')) {
+            const wg = this.make.graphics({ x: 0, y: 0, add: false });
+            wg.fillStyle(0xffffff, 1);
+            wg.fillRect(0, 0, 3, 3);
+            wg.generateTexture('__weatherDot', 3, 3);
+            wg.destroy();
+        }
+
+        // tint 오버레이 (반투명 사각형)
+        const tintRect = this.add.rectangle(width / 2, height / 2, width, height, def.tint, 0)
+            .setDepth(18);
+        this.tweens.add({ targets: tintRect, alpha: def.tintAlpha, duration: 800 });
+
+        // 파티클 설정 (종류별 차등)
+        let cfg;
+        if (key === 'rain') {
+            cfg = {
+                x: { min: 0, max: width }, y: -20,
+                speedY: { min: 700, max: 1100 }, speedX: { min: -40, max: -10 },
+                lifespan: 1500, scale: { start: 1.6, end: 1.0 }, alpha: { start: 0.7, end: 0.4 },
+                quantity: 4, frequency: 30, tint: def.particleColor
+            };
+        } else if (key === 'snow') {
+            cfg = {
+                x: { min: 0, max: width }, y: -20,
+                speedY: { min: 80, max: 220 }, speedX: { min: -60, max: 60 },
+                lifespan: 6000, scale: { start: 1.4, end: 1.0 }, alpha: { start: 0.95, end: 0.6 },
+                quantity: 3, frequency: 70, tint: def.particleColor,
+                rotate: { min: 0, max: 360 }
+            };
+        } else { // typhoon
+            cfg = {
+                x: { min: -50, max: width }, y: { min: 0, max: height * 0.6 },
+                speedY: { min: 200, max: 400 }, speedX: { min: 600, max: 1000 },
+                lifespan: 1200, scale: { start: 2.2, end: 1.2 }, alpha: { start: 0.8, end: 0.4 },
+                quantity: 6, frequency: 25, tint: def.particleColor
+            };
+        }
+        const particles = this.add.particles(0, 0, '__weatherDot', cfg).setDepth(19);
+
+        // 사운드 + 독백
+        this.soundManager.playWeatherSound(key);
+        if (!this.characterBubble) this.showCharacterMonologue(def.line);
+        if (key === 'typhoon') this.cameras.main.shake(WEATHER_DURATION, 0.0008);
+
+        const endsAt = this.time.now + WEATHER_DURATION;
+        this.weatherActive = { key, particles, tintRect, endsAt };
+
+        // 종료 타이머
+        this.time.delayedCall(WEATHER_DURATION, () => this.endWeather());
+    }
+
+    endWeather() {
+        if (!this.weatherActive) return;
+        const { particles, tintRect } = this.weatherActive;
+
+        // 파티클 emission 중단 (잔여 입자는 자연스럽게 떨어지며 사라짐)
+        // Phaser 3.60+에서 add.particles는 ParticleEmitter 직접 반환 → .stop() 호출
+        if (particles && particles.stop) {
+            particles.stop();
+        }
+        // tint 페이드아웃
+        if (tintRect) {
+            this.tweens.add({
+                targets: tintRect,
+                alpha: 0,
+                duration: 1200, ease: 'Quad.in',
+                onComplete: () => tintRect.destroy()
+            });
+        }
+        // 파티클 객체는 1.5초 후 정리 (잔여 입자 lifespan 만료까지 여유)
+        this.time.delayedCall(1500, () => {
+            if (particles && particles.scene) particles.destroy();
+        });
+        this.weatherActive = null;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 잔상 플래시 (foreshadow) - 후속 레이어 색을 살짝 미리 노출
+    //   - layer 1~3에서만, 1.5% 확률 / 탭, 30탭 쿨다운
+    //   - 보상 X (순수 시각/사운드), 캐릭터가 호기심 라인 1번 뱉음
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    maybeTriggerForeshadow() {
+        if (this.foreshadowCooldown > 0) {
+            this.foreshadowCooldown -= 1;
+            return;
+        }
+        if (!this.layerData || this.layerData.order > FORESHADOW_MAX_LAYER_ORDER) return;
+        if (this.clearActive || this.treasurePopupActive || this.burnoutActive) return;
+        if (Math.random() >= FORESHADOW_CHANCE) return;
+
+        // 색 픽 + 카메라 플래시 (220ms, 짧게 → 자연스럽게 약하게 느껴짐)
+        const c = FORESHADOW_COLORS[Math.floor(Math.random() * FORESHADOW_COLORS.length)];
+        this.cameras.main.flash(220, c.r, c.g, c.b, false);
+
+        this.soundManager.playForeshadowChime();
+
+        // 캐릭터 호기심 라인 (현재 다른 말풍선 떠있으면 스킵)
+        if (!this.characterBubble) {
+            const line = FORESHADOW_LINES[Math.floor(Math.random() * FORESHADOW_LINES.length)];
+            this.showCharacterMonologue(line);
+        }
+
+        this.foreshadowCooldown = FORESHADOW_COOLDOWN_TAPS;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 레이어 클리어
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     clearLayer() {
@@ -1529,9 +1923,86 @@ export default class GameScene extends Phaser.Scene {
             '#ffd700'
         );
 
-        // 1.5초 후 다음 레이어로 (loadLayer가 clearActive와 텍스처를 리셋)
-        this.time.delayedCall(1500, () => {
+        // 1.1초 후 "다음 레이어 프리뷰" 0.8초 노출 → 0.6초 페이드아웃 → 2.5초 시점 loadLayer
+        // (clear 팡파레/리워드 텍스트가 거의 사라진 시점에 다음 무대 살짝 보여 동기 부여)
+        this.time.delayedCall(1100, () => this.showNextLayerPreview());
+        this.time.delayedCall(2500, () => {
             this.loadLayer(this.layerOrder + 1);
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 다음 레이어 프리뷰 (clearLayer 후 1.1~2.5s 사이 노출)
+    //   - 화면 중앙에 다음 레이어 배경 썸네일 + "다음: <name>" 텍스트
+    //   - 0.25s 페이드인 → 0.7s 유지 → 0.5s 페이드아웃
+    //   - 다음 레이어 없으면 (마지막 클리어) 스킵
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    showNextLayerPreview() {
+        const next = getLayerByOrder(this.layerOrder + 1);
+        if (!next) return;   // 마지막 레이어 클리어 - 메뉴 복귀라 스킵
+        if (!this.cameras || !this.cameras.main) return;
+
+        const { width, height } = this.cameras.main;
+        const bgKey = `${next.id}_bg`;
+        if (!this.textures.exists(bgKey)) return;
+
+        // 어두운 오버레이 (현재 화면 살짝 가림 → 프리뷰 가독성)
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0)
+            .setDepth(95);
+
+        // 썸네일 - 화면 중앙, 폭 70% / 높이 30% (배경 jpg 비율 무시 강제 fit)
+        const thumbW = width * 0.70;
+        const thumbH = height * 0.30;
+        const thumbCenterY = height * 0.45;
+        const thumb = this.add.image(width / 2, thumbCenterY, bgKey)
+            .setDisplaySize(thumbW, thumbH)
+            .setDepth(96)
+            .setAlpha(0);
+        // 테두리 (Image는 stroke 없어서 graphics로 별도 그림)
+        const border = this.add.graphics().setDepth(97).setAlpha(0);
+        border.lineStyle(4, 0xffd700, 1);
+        border.strokeRect(width / 2 - thumbW / 2, thumbCenterY - thumbH / 2, thumbW, thumbH);
+
+        // "다음: <name>" 라벨 (썸네일 아래 30px)
+        const label = this.add.text(width / 2, thumbCenterY + thumbH / 2 + 30, `다음: ${next.name}`, {
+            font: 'bold 32px sans-serif',
+            color: '#ffd700',
+            stroke: '#000', strokeThickness: 5
+        }).setOrigin(0.5).setDepth(97).setAlpha(0);
+
+        // 페이드인 / 유지 / 페이드아웃 (0.25 + 0.7 + 0.5 = 1.45초, loadLayer 전 여유 0.05s)
+        const fadeIn = 250, hold = 700, fadeOut = 500;
+        this.soundManager.playLayerPreviewSound();
+
+        this.tweens.add({
+            targets: [overlay],
+            alpha: { from: 0, to: 0.55 },
+            duration: fadeIn, ease: 'Quad.out'
+        });
+        this.tweens.add({
+            targets: [thumb, border, label],
+            alpha: { from: 0, to: 1 },
+            duration: fadeIn, ease: 'Quad.out'
+        });
+
+        // 페이드아웃
+        this.time.delayedCall(fadeIn + hold, () => {
+            this.tweens.add({
+                targets: [overlay],
+                alpha: 0,
+                duration: fadeOut, ease: 'Quad.in'
+            });
+            this.tweens.add({
+                targets: [thumb, border, label],
+                alpha: 0,
+                duration: fadeOut, ease: 'Quad.in',
+                onComplete: () => {
+                    overlay.destroy();
+                    thumb.destroy();
+                    border.destroy();
+                    label.destroy();
+                }
+            });
         });
     }
 
@@ -2252,7 +2723,9 @@ export default class GameScene extends Phaser.Scene {
 
         const { width, height } = this.cameras.main;
         const cx = width / 2;
-        const cy = height * 0.5;
+        // 장애물 위치 = 캐릭터 발 바로 아래 (bgCircle 반지름 90 → 원의 윗변이 발 라인에 살짝 닿음)
+        // 기존 height*0.5는 캐릭터 허리~발 영역에 겹쳐 보였음 → character.y(발 위치) 기준으로 변경
+        const cy = this.character.y + 95;
 
         const container = this.add.container(cx, cy).setDepth(45);
 
@@ -2296,10 +2769,10 @@ export default class GameScene extends Phaser.Scene {
             duration: 320, ease: 'Back.out'
         });
 
-        // 사운드 + 강진동 + 카메라 셰이크
+        // 사운드 + 강진동 + 카메라 셰이크 (등장 임팩트도 더 강하게)
         this.soundManager.playObstacleAppearSound();
-        this.soundManager.triggerHardSoilHaptic();   // 손저림 강진동
-        this.cameras.main.shake(180, 0.012);
+        this.soundManager.triggerObstacleHitHaptic();   // 4펄스 묵직 진동
+        this.cameras.main.shake(260, 0.018);            // 180/0.012 → 260/0.018
 
         // 캐릭터 깜짝 놀람 표정 0.6초 ("어?!" 반응)
         this.triggerSurprise(600);
@@ -2345,10 +2818,10 @@ export default class GameScene extends Phaser.Scene {
         const ratio = ob.tapsLeft / ob.tapsTotal;
         ob.hpBar.width = ob.hpBarW * ratio;
 
-        // 사운드 + 햅틱 + 카메라 (장애물은 hard soil보다 더 강한 충격감)
-        this.soundManager.playObstacleHitSound();
-        this.soundManager.triggerHardSoilHaptic();      // 트리플 펄스 강진동
-        this.cameras.main.shake(160, 0.018);            // 80/0.008 → 160/0.018
+        // 사운드 + 햅틱 + 카메라 (장애물 타입별 거친 사운드 + 더 강한 진동)
+        this.soundManager.playObstacleHitSound(ob.type);
+        this.soundManager.triggerObstacleHitHaptic();   // 4펄스 묵직 진동 (hard보다 한 단계 위)
+        this.cameras.main.shake(220, 0.024);            // 셰이크 강화: 160/0.018 → 220/0.024
         this.cameras.main.flash(120, 255, 230, 200, false);  // 노란 플래시로 충돌 강조
 
         // 안내 텍스트 갱신
@@ -2364,10 +2837,10 @@ export default class GameScene extends Phaser.Scene {
         const ob = this.currentObstacle;
         if (!ob) return;
 
-        // 사운드 + 강진동 + 강한 카메라 셰이크
+        // 사운드 + 강진동 + 강한 카메라 셰이크 (파괴는 가장 강력하게)
         this.soundManager.playObstacleBreakSound();
-        this.soundManager.triggerHardSoilHaptic();
-        this.cameras.main.shake(280, 0.018);
+        this.soundManager.triggerObstacleHitHaptic();
+        this.cameras.main.shake(360, 0.026);
         this.cameras.main.flash(180, 255, 230, 120);  // 노란빛 플래시
 
         // 흙 파티클 폭발 (장애물 위치)
