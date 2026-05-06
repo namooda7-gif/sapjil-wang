@@ -1,10 +1,26 @@
-// 메인 메뉴 씬 - layer_001_bg 배경 + 좌측 세로 버튼 + 우측 캐릭터(번아웃 말풍선)
-// 진입 시 메뉴 BGM 재생, 오프라인 보상 팝업 자동 검사
-// 게임 시작 버튼 탭 시 풀스크린 요청 (브라우저 주소창 숨기기)
+// 메인 메뉴 씬 (대규모 업데이트 — 첫 진입 임팩트 강화)
+//   #1 발 밑 보물 티징    : 화면 하단에 살짝 빛나는 보물 1개로 호기심 유발
+//   #2 카피 수정          : "파러 가기 →" + "(사장님 몰래)" 부제 (B급 톤)
+//   #3 캐릭터 터치 반응   : 박삽돌 찌르면 라인 순환 + 깜짝 흔들림
+//   #5 타이틀 숨쉬기/후광  : scale + alpha 펄스
+//   #5 흙먼지 파티클       : 화면 전체 미세 입자 6~8개
+//   #6 시작 버튼 펄스+👆  : 시작 버튼 1.05x 펄스 + 옆에 흔드는 손 이모지
+//   #7 재화 카운터        : 상단 중앙 (재진입 유저만)
+//   #8 신규/재진입 분기   : 첫 진입 시 [파러 가기]만, 재진입은 풀 메뉴
 import Phaser from 'phaser';
 import CurrencyManager from '../managers/CurrencyManager.js';
 import OfflineRewardManager from '../managers/OfflineRewardManager.js';
 import SoundManager from '../managers/SoundManager.js';
+
+// 캐릭터 터치 시 순환 라인 (인덱스 0은 초기 말풍선과 동일)
+const CHARACTER_TAP_LINES = [
+    '...번아웃...',
+    '앗! 사장님?!',
+    '뼈 빠지게 파는 중...',
+    '월급은 언제...',
+    '이게 내 인생인가...',
+    '사람 살려...'
+];
 
 export default class MenuScene extends Phaser.Scene {
     constructor() {
@@ -14,87 +30,263 @@ export default class MenuScene extends Phaser.Scene {
     create() {
         const { width, height } = this.cameras.main;
 
-        // ━━━━ 1) 배경 - layer_001_bg cover-fit + 어두운 반투명 오버레이 0.45 ━━━━
+        // ━━━━ 배경 + 어두운 오버레이 ━━━━
         if (this.textures.exists('layer_001_bg')) {
             const bg = this.add.image(width / 2, height / 2, 'layer_001_bg').setOrigin(0.5);
-            // 비율 유지 cover-fit (CSS background-size: cover와 동일)
             const sw = bg.width, sh = bg.height;
-            if (sw && sh) {
-                const scale = Math.max(width / sw, height / sh);
-                bg.setScale(scale);
-            }
+            if (sw && sh) bg.setScale(Math.max(width / sw, height / sh));
         } else {
-            // 폴백 색
             this.add.rectangle(width / 2, height / 2, width, height, 0x5a2d0c);
         }
-        // 가독성용 어두운 오버레이 rgba(0, 0, 0, 0.45)
         this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.45);
 
-        // ━━━━ 2) 타이틀 (화면 상단 25%, 황금색, 검정 외곽 8px, 둥실둥실 floating) ━━━━
-        const titleContainer = this.add.container(width / 2, height * 0.25);
+        // ━━━━ #1 발 밑 보물 티징 (화면 하단 단일 보물 + 황금 글로우) ━━━━
+        this.createTreasureTease(width, height);
+
+        // ━━━━ #5 흙먼지 미세 파티클 (저사양 친화) ━━━━
+        this.createDustParticles(width, height);
+
+        // ━━━━ 사용자 상태 (신규 vs 재진입) ━━━━
+        this.currencyManager = new CurrencyManager();
+        this.offlineRewardManager = new OfflineRewardManager(this.currencyManager);
+        const cm = this.currencyManager;
+        const isFirstTime =
+            this.offlineRewardManager.lastSeenTime === null &&
+            cm.coin === 0 && cm.diamond === 0 && cm.relic === 0;
+        this.isFirstTime = isFirstTime;
+
+        // ━━━━ #7 상단 재화 카운터 (재진입 유저만) ━━━━
+        if (!isFirstTime) this.createCurrencyHUD(width);
+
+        // ━━━━ #5 타이틀 (숨쉬기 + 후광 펄스) ━━━━
+        this.createBreathingTitle(width / 2, height * 0.25);
+
+        // ━━━━ #3 박삽돌 - 터치 인터랙션 ━━━━
+        this.createInteractiveCharacter(width, height);
+
+        // ━━━━ #2/#6/#8 좌측 버튼 (신규는 시작만, 재진입은 4개) ━━━━
+        this.createMenuButtons(width, height, isFirstTime);
+
+        // ━━━━ BGM 시스템 + 오프라인 보상 ━━━━
+        this.soundManager = new SoundManager(this);
+        this.soundManager.playBGM('bgm_menu');
+        this.createBGMToggleButton(width - 60, 60);
+
+        const reward = this.offlineRewardManager.getPendingReward();
+        if (reward > 0) {
+            this.soundManager.playOfflineRewardSound();
+            this.showOfflineRewardPopup(
+                reward, this.offlineRewardManager.formatElapsed(),
+                () => this.offlineRewardManager.claim()
+            );
+        } else {
+            this.offlineRewardManager.markSeen();
+        }
+        if (!this._beforeunloadHooked) {
+            window.addEventListener('beforeunload', () => this.offlineRewardManager.markSeen());
+            this._beforeunloadHooked = true;
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // #1 발 밑 보물 티징
+    //   화면 하단(y 92%)에 보물 이모지 1개 + 황금 후광이 천천히 깜빡
+    //   "저 밑에 뭐가 있다" 호기심만 유발하고 클릭 X (메뉴 버튼과 분리)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createTreasureTease(width, height) {
+        const x = width * 0.18;            // 화면 좌측 하단 - 캐릭터(우측)와 안 겹치게
+        const y = height * 0.92;
+
+        // 황금 후광 (반투명 원, 펄스)
+        const glow = this.add.circle(x, y, 38, 0xffd700, 0.32).setDepth(1);
+        this.tweens.add({
+            targets: glow,
+            alpha: { from: 0.32, to: 0.65 },
+            scale: { from: 1.0, to: 1.18 },
+            duration: 1400, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+        });
+
+        // 보물 이모지 (반쯤 흙에 묻힌 듯 살짝 회전)
+        const treasure = this.add.text(x, y, '🏺', {
+            font: '46px sans-serif'
+        }).setOrigin(0.5).setDepth(2).setAngle(-12);
+        // 매우 미세한 둥실 (흙에서 살짝 솟구치는 느낌)
+        this.tweens.add({
+            targets: treasure,
+            y: y - 4,
+            duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // #5 흙먼지 미세 파티클 (저사양 친화 - 8개, alpha 0.3 미만)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createDustParticles(width, height) {
+        // 점 텍스처 즉석 생성 (없으면)
+        if (!this.textures.exists('__menuDust')) {
+            const g = this.make.graphics({ x: 0, y: 0, add: false });
+            g.fillStyle(0xffe0a0, 1);
+            g.fillCircle(2, 2, 2);
+            g.generateTexture('__menuDust', 4, 4);
+            g.destroy();
+        }
+        // 화면 전체에 천천히 떠다님 (frequency 700ms = 입자 빈도 매우 낮음)
+        this.add.particles(0, 0, '__menuDust', {
+            x: { min: 0, max: width },
+            y: height + 10,                                         // 아래에서 위로
+            speedY: { min: -22, max: -10 },
+            speedX: { min: -8, max: 8 },
+            lifespan: 8000,
+            scale:  { start: 0.8, end: 0.5 },
+            alpha:  { start: 0.28, end: 0 },
+            frequency: 700,                                         // 0.7초마다 1개
+            quantity: 1
+        }).setDepth(2);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // #7 상단 재화 카운터 (재진입 유저만 노출, 신규는 0/0/0이라 부담)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createCurrencyHUD(width) {
+        const cm = this.currencyManager;
+        const txt = `🪙 ${cm.coin.toLocaleString()}    💎 ${cm.diamond}    🏺 ${cm.relic}`;
+        const hud = this.add.text(width / 2, 60, txt, {
+            font: 'bold 22px sans-serif',
+            color: '#ffd700',
+            stroke: '#000', strokeThickness: 4,
+            backgroundColor: '#00000099',
+            padding: { x: 16, y: 8 }
+        }).setOrigin(0.5).setDepth(15);
+        // 살짝 페이드인
+        hud.setAlpha(0);
+        this.tweens.add({ targets: hud, alpha: 1, duration: 400, delay: 200 });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // #5 타이틀 (숨쉬기 scale + 후광 alpha 펄스)
+    //   기존 둥실둥실(y) 유지 + scale + 별도 glow 레이어
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createBreathingTitle(cx, cy) {
+        const titleContainer = this.add.container(cx, cy).setDepth(10);
+
+        // 후광 (큰 황금 원, alpha 펄스 → "삽질왕" 글자가 빛나는 느낌)
+        const glow = this.add.circle(0, -10, 220, 0xffd700, 0.0);
+        this.tweens.add({
+            targets: glow,
+            alpha: { from: 0.0, to: 0.22 },
+            duration: 1800, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+        });
 
         // 그림자 (입체감)
         const titleShadow = this.add.text(4, 4, '삽질왕', {
-            font: 'bold 120px sans-serif',
-            color: '#000000'
+            font: 'bold 120px sans-serif', color: '#000000'
         }).setOrigin(0.5);
 
-        // 본 타이틀 #FFD700 + 검정 외곽 8px
+        // 본 타이틀
         const titleMain = this.add.text(0, 0, '삽질왕', {
             font: 'bold 120px sans-serif',
             color: '#FFD700',
-            stroke: '#000000',
-            strokeThickness: 8
+            stroke: '#000000', strokeThickness: 8
         }).setOrigin(0.5);
 
-        // 서브타이틀 흰색 36px
+        // 서브타이틀
         const subtitle = this.add.text(0, 80, 'Just Dig It', {
             font: 'bold 36px sans-serif',
             color: '#ffffff',
-            stroke: '#000000',
-            strokeThickness: 4
+            stroke: '#000000', strokeThickness: 4
         }).setOrigin(0.5);
 
-        titleContainer.add([titleShadow, titleMain, subtitle]);
+        titleContainer.add([glow, titleShadow, titleMain, subtitle]);
 
-        // 둥실둥실 floating 애니메이션 (y±8, 1초 yo-yo = 총 2초 한 사이클)
+        // 전체 컨테이너 둥실둥실 (y) + scale 숨쉬기
         this.tweens.add({
             targets: titleContainer,
-            y: titleContainer.y - 8,
-            duration: 1000,
-            ease: 'Sine.inOut',
-            yoyo: true,
-            repeat: -1
+            y: cy - 8,
+            duration: 1000, ease: 'Sine.inOut', yoyo: true, repeat: -1
         });
+        this.tweens.add({
+            targets: titleContainer,
+            scale: { from: 1.0, to: 1.04 },
+            duration: 1600, ease: 'Sine.inOut', yoyo: true, repeat: -1
+        });
+    }
 
-        // ━━━━ 3) 박삽돌 캐릭터 - 우측 하단, 화면 40% 크기, 5° 기울임 + 말풍선 ━━━━
-        if (this.textures.exists('char_001_idle')) {
-            const charX = width * 0.78;
-            const charY = height * 0.74;
-            const char = this.add.image(charX, charY, 'char_001_idle').setOrigin(0.5);
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // #3 박삽돌 - 터치 시 라인 순환 + 깜짝 흔들림
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createInteractiveCharacter(width, height) {
+        if (!this.textures.exists('char_001_idle')) return;
 
-            // 세로 = 화면 높이의 40%, 가로는 비율 유지
-            const targetH = height * 0.40;
-            const ratio = char.width / char.height;
-            char.setDisplaySize(targetH * ratio, targetH);
-            char.setAngle(5); // 삽에 기댄 듯 살짝 우측 기울임
+        const charX = width * 0.78;
+        const charY = height * 0.74;
+        const char = this.add.image(charX, charY, 'char_001_idle')
+            .setOrigin(0.5).setDepth(5);
 
-            // 말풍선 (캐릭터 머리 위)
-            const bubbleY = charY - char.displayHeight * 0.55;
-            this.createSpeechBubble(charX - 20, bubbleY, '...번아웃...');
-        }
+        const targetH = height * 0.40;
+        const ratio = char.width / char.height;
+        char.setDisplaySize(targetH * ratio, targetH);
+        char.setAngle(5);
+        char.setInteractive({ useHandCursor: true });
 
-        // ━━━━ 4) 좌측 세로 버튼 4개 (둥근 사각 + 아이콘) ━━━━
+        // 말풍선 (캐릭터 머리 위)
+        const bubbleY = charY - char.displayHeight * 0.55;
+        const bubble = this.createSpeechBubble(charX - 20, bubbleY, CHARACTER_TAP_LINES[0]);
+        this.menuBubble = bubble;
+        this.menuBubbleLineIdx = 0;
+
+        // 터치 핸들러
+        char.on('pointerdown', () => {
+            // 라인 순환 (0번은 초기 라인이라 1번부터 다시 돌림)
+            this.menuBubbleLineIdx = (this.menuBubbleLineIdx + 1) % CHARACTER_TAP_LINES.length;
+            const newLine = CHARACTER_TAP_LINES[this.menuBubbleLineIdx];
+            // 말풍선 텍스트 갱신
+            if (bubble && bubble.list) {
+                const txt = bubble.list.find(c => c.type === 'Text');
+                if (txt) txt.setText(newLine);
+            }
+            // 캐릭터 깜짝 흔들림 (좌우 빠른 8px)
+            this.tweens.killTweensOf(char);
+            this.tweens.add({
+                targets: char,
+                x: { from: charX - 6, to: charX + 6 },
+                duration: 60, yoyo: true, repeat: 2,
+                onComplete: () => { char.x = charX; }
+            });
+            // 살짝 scale 펑
+            this.tweens.add({
+                targets: char,
+                scaleX: char.scaleX * 1.06,
+                scaleY: char.scaleY * 1.06,
+                duration: 120, yoyo: true, ease: 'Quad.out'
+            });
+            // 효과음
+            if (this.soundManager) this.soundManager.playSpeechBubbleSound();
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // #6/#8/#2 메뉴 버튼 묶음
+    //   - 신규(isFirstTime): 큰 [파러 가기 →] 하나만 + 흔드는 👆
+    //   - 재진입: 시작 + 캐릭터 + 상점 + 박물관 4개 (시작은 펄스 강조)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createMenuButtons(width, height, isFirstTime) {
         const btnW = Math.floor(width * 0.55);
         const btnH = 80;
-        const btnX = btnW / 2 + 22;          // 좌측 22px 마진
-        const btnYs = [560, 660, 760, 860];   // 100px 간격
+        const btnX = btnW / 2 + 22;
 
-        this.createIconButton(btnX, btnYs[0], btnW, btnH, '⛏️', '게임 시작', () => {
-            // 풀스크린 요청 후 GameScene 전환
-            this.tryRequestFullscreen();
-            this.scene.start('GameScene');
-        });
+        if (isFirstTime) {
+            // 큰 시작 버튼 1개 (1.4x), 화면 세로 중앙 살짝 아래
+            const startY = height * 0.62;
+            const bigStart = this.createStartButton(width / 2, startY, Math.floor(btnW * 1.35), 110);
+            // 흔드는 👆 (시작 버튼 우측)
+            this.createWaggleHand(width / 2 + Math.floor(btnW * 1.35) / 2 + 30, startY);
+            return;
+        }
+
+        // 재진입 - 시작 버튼은 강조 (펄스 + 화살표), 나머지 3개는 평범
+        const btnYs = [560, 660, 760, 860];
+        this.createStartButton(btnX, btnYs[0], btnW, btnH);
+        this.createWaggleHand(btnX + btnW / 2 + 30, btnYs[0]);
         this.createIconButton(btnX, btnYs[1], btnW, btnH, '👷', '캐릭터', () => {
             console.log('CharacterScene 미구현');
         });
@@ -104,31 +296,96 @@ export default class MenuScene extends Phaser.Scene {
         this.createIconButton(btnX, btnYs[3], btnW, btnH, '🏛️', '삽질박물관', () => {
             this.scene.start('MuseumScene');
         });
-
-        // ━━━━ 5) BGM/SFX 시스템 (기존 유지) ━━━━
-        this.soundManager = new SoundManager(this);
-        this.soundManager.playBGM('bgm_menu');
-        this.createBGMToggleButton(width - 60, 60);
-
-        // ━━━━ 6) 오프라인 보상 검사 (기존 시스템) ━━━━
-        const cm = new CurrencyManager();
-        const orm = new OfflineRewardManager(cm);
-        const reward = orm.getPendingReward();
-        if (reward > 0) {
-            this.soundManager.playOfflineRewardSound();
-            this.showOfflineRewardPopup(reward, orm.formatElapsed(), () => orm.claim());
-        } else {
-            orm.markSeen();
-        }
-        if (!this._beforeunloadHooked) {
-            window.addEventListener('beforeunload', () => orm.markSeen());
-            this._beforeunloadHooked = true;
-        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 풀스크린 요청 (브라우저별 prefix 처리, 사용자 제스처 컨텍스트에서만 동작)
-    // 실패해도 게임은 정상 진행 (try/catch + .catch())
+    // #6 시작 버튼 (펄스 + "파러 가기 →" 메인 + "(사장님 몰래)" 부제)
+    //   다른 버튼보다 큰 사이즈 + 1.05x 펄스 + 황금 외곽 강조
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createStartButton(x, y, w, h) {
+        const container = this.add.container(x, y).setDepth(20);
+        const radius = 18;
+        const SHADOW_OFFSET = 8;
+
+        // 그림자판 (어두운 황토)
+        const shadow = this.add.graphics();
+        shadow.fillStyle(0xa07000, 1);
+        shadow.fillRoundedRect(-w / 2, -h / 2 + SHADOW_OFFSET, w, h, radius);
+
+        // 메인판 (밝은 황금 + 굵은 검정 외곽)
+        const top = this.add.graphics();
+        top.fillStyle(0xffd700, 1);
+        top.fillRoundedRect(-w / 2, -h / 2, w, h, radius);
+        top.lineStyle(4, 0x000000, 1);
+        top.strokeRoundedRect(-w / 2, -h / 2, w, h, radius);
+
+        // 황금 광택 (상단 1/3 영역에 밝은 노랑 라인)
+        const shine = this.add.graphics();
+        shine.fillStyle(0xffffaa, 0.45);
+        shine.fillRoundedRect(-w / 2 + 8, -h / 2 + 6, w - 16, Math.max(8, h * 0.18), 6);
+
+        // 메인 라벨 "파러 가기 →"
+        const main = this.add.text(0, -h * 0.10, '파러 가기 →', {
+            font: 'bold 38px sans-serif', color: '#000000'
+        }).setOrigin(0.5);
+
+        // 부제 "(사장님 몰래)" — 작고 살짝 기울임
+        const sub = this.add.text(0, h * 0.20, '(사장님 몰래)', {
+            font: 'italic 18px sans-serif', color: '#5a2d0c'
+        }).setOrigin(0.5);
+
+        container.add([shadow, top, shine, main, sub]);
+
+        // 히트 영역
+        container.setSize(w, h + SHADOW_OFFSET);
+        container.setInteractive(
+            new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h + SHADOW_OFFSET),
+            Phaser.Geom.Rectangle.Contains
+        );
+
+        // 펄스 (1.05x 숨쉬기) — 사용자 시선 끌기
+        this.tweens.add({
+            targets: container,
+            scale: { from: 1.0, to: 1.05 },
+            duration: 650, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+        });
+
+        // 클릭 피드백 + 핸들러
+        container.on('pointerdown',      () => container.setScale(0.95));
+        container.on('pointerout',       () => container.setScale(1));
+        container.on('pointerupoutside', () => container.setScale(1));
+        container.on('pointerup', () => {
+            container.setScale(1);
+            this.tryRequestFullscreen();
+            this.scene.start('GameScene');
+        });
+
+        return container;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // #6 흔드는 👆 손 (시작 버튼 옆)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createWaggleHand(x, y) {
+        const hand = this.add.text(x, y, '👆', {
+            font: '46px sans-serif'
+        }).setOrigin(0.5).setDepth(20);
+        // 좌우 흔들기 (각도 ±15°)
+        this.tweens.add({
+            targets: hand,
+            angle: { from: -15, to: 15 },
+            duration: 350, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+        });
+        // 살짝 위아래 (찌르는 느낌)
+        this.tweens.add({
+            targets: hand,
+            y: y - 6,
+            duration: 600, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 풀스크린 요청 (브라우저별 prefix 처리)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     tryRequestFullscreen() {
         const el = document.documentElement;
@@ -145,49 +402,40 @@ export default class MenuScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 3D 라운드 버튼 (그림자판 + 상단판 + scale 눌림 피드백)
-    // 클릭 안정성을 위해 y-shift 애니 대신 container.scale 사용
-    //   → 모바일 터치에서 y-shift는 pointer 이벤트와 미묘하게 충돌해 1탭 누락 발생
-    //   → scale 0.96 짧게 줬다 복귀 + pointerup 항상 onClick 호출 패턴이 가장 안정
+    // 일반 라운드 버튼 (캐릭터/상점/박물관용)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createIconButton(x, y, w, h, icon, label, onClick) {
-        const container = this.add.container(x, y);
+        const container = this.add.container(x, y).setDepth(20);
         const radius = 16;
         const colorTop    = 0xFFD700;
         const colorBottom = 0xc49a00;
         const SHADOW_OFFSET = 6;
 
-        // 하단 그림자판 (정적 — 입체 레이어드 비주얼)
         const shadow = this.add.graphics();
         shadow.fillStyle(colorBottom, 1);
         shadow.fillRoundedRect(-w / 2, -h / 2 + SHADOW_OFFSET, w, h, radius);
 
-        // 상단판
         const top = this.add.graphics();
         top.fillStyle(colorTop, 1);
         top.fillRoundedRect(-w / 2, -h / 2, w, h, radius);
         top.lineStyle(3, 0x000000, 1);
         top.strokeRoundedRect(-w / 2, -h / 2, w, h, radius);
 
-        // 아이콘 + 라벨
         const iconText = this.add.text(-w / 2 + 50, 0, icon, {
             font: '38px sans-serif'
         }).setOrigin(0.5);
         const labelText = this.add.text(-w / 2 + 100, 0, label, {
-            font: 'bold 34px sans-serif',
-            color: '#000000'
+            font: 'bold 34px sans-serif', color: '#000000'
         }).setOrigin(0, 0.5);
 
         container.add([shadow, top, iconText, labelText]);
 
-        // 히트 영역 (그림자 SHADOW_OFFSET 포함)
         container.setSize(w, h + SHADOW_OFFSET);
         container.setInteractive(
             new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h + SHADOW_OFFSET),
             Phaser.Geom.Rectangle.Contains
         );
 
-        // scale 기반 눌림 피드백 — 가장 안정적인 패턴
         container.on('pointerdown',      () => container.setScale(0.96));
         container.on('pointerout',       () => container.setScale(1));
         container.on('pointerupoutside', () => container.setScale(1));
@@ -200,20 +448,17 @@ export default class MenuScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 말풍선 (둥근 흰색 사각 + 아래 꼬리 + 텍스트)
+    // 말풍선 (둥근 흰색 + 아래 꼬리)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createSpeechBubble(x, y, text) {
         const container = this.add.container(x, y).setDepth(20);
-        const bw = 220, bh = 60;
+        const bw = 240, bh = 60;
         const g = this.add.graphics();
-
-        // 흰색 배경 + 검정 외곽
         g.fillStyle(0xffffff, 0.95);
         g.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, 16);
         g.lineStyle(3, 0x000000, 1);
         g.strokeRoundedRect(-bw / 2, -bh / 2, bw, bh, 16);
 
-        // 아래 꼬리 (말풍선이 캐릭터를 가리키도록)
         g.fillStyle(0xffffff, 0.95);
         g.fillTriangle(-12, bh / 2 - 1, 12, bh / 2 - 1, 0, bh / 2 + 18);
         g.lineStyle(3, 0x000000, 1);
@@ -221,46 +466,31 @@ export default class MenuScene extends Phaser.Scene {
         g.lineBetween(12, bh / 2 - 1, 0, bh / 2 + 18);
 
         const txt = this.add.text(0, 0, text, {
-            font: 'bold 24px sans-serif',
-            color: '#5a2d0c'
+            font: 'bold 22px sans-serif', color: '#5a2d0c'
         }).setOrigin(0.5);
 
         container.add([g, txt]);
 
-        // 살짝 둥실둥실 (캐릭터 위에서 흔들림)
+        // 둥실둥실
         this.tweens.add({
-            targets: container,
-            y: y - 5,
-            duration: 1400,
-            ease: 'Sine.inOut',
-            yoyo: true,
-            repeat: -1
+            targets: container, y: y - 5,
+            duration: 1400, ease: 'Sine.inOut', yoyo: true, repeat: -1
         });
-
         return container;
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // BGM ON/OFF 토글 (우상단, 검정 배경 더 어둡게 - 0.45 오버레이 위에서도 잘 보임)
+    // BGM ON/OFF 토글 (기존)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createBGMToggleButton(x, y) {
         const updateIcon = () => {
             this.bgmToggleBtn.setText(this.soundManager.isBGMMuted ? '🔇' : '🔊');
         };
-
-        // 더 어두운 검정 배경 (0.7 alpha) + 황금 테두리
         this.add.circle(x, y, 38, 0x000000, 0.75)
-            .setStrokeStyle(3, 0xffd700)
-            .setDepth(50);
-
-        this.bgmToggleBtn = this.add.text(x, y, '🔊', {
-            font: '40px sans-serif'
-        }).setOrigin(0.5)
-          .setDepth(51)
-          .setInteractive({ useHandCursor: true });
-
+            .setStrokeStyle(3, 0xffd700).setDepth(50);
+        this.bgmToggleBtn = this.add.text(x, y, '🔊', { font: '40px sans-serif' })
+            .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true });
         updateIcon();
-
         this.bgmToggleBtn.on('pointerdown', () => this.bgmToggleBtn.setAlpha(0.6));
         this.bgmToggleBtn.on('pointerout',  () => this.bgmToggleBtn.setAlpha(1));
         this.bgmToggleBtn.on('pointerup',   () => {
@@ -271,14 +501,13 @@ export default class MenuScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 오프라인 보상 팝업 (기존 시스템 유지)
+    // 오프라인 보상 팝업 (기존 그대로)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     showOfflineRewardPopup(rewardCoin, elapsedStr, onClaim) {
         const { width, height } = this.cameras.main;
 
         const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7)
-            .setInteractive({ useHandCursor: true })
-            .setDepth(100);
+            .setInteractive({ useHandCursor: true }).setDepth(100);
 
         const card = this.add.container(width / 2, height / 2).setDepth(101);
         const cardW = width * 0.84;
@@ -288,49 +517,27 @@ export default class MenuScene extends Phaser.Scene {
             .setStrokeStyle(6, 0xffd700);
 
         const sleepIcon = this.add.text(0, -160, '💤', { font: '96px sans-serif' }).setOrigin(0.5);
-
-        const line1 = this.add.text(0, -50, '오프라인 동안', {
-            font: 'bold 32px sans-serif', color: '#ffffff'
-        }).setOrigin(0.5);
-
-        const line2 = this.add.text(0, -10, '박삽돌이 혼자 팠어요!', {
-            font: 'bold 32px sans-serif', color: '#ffffff'
-        }).setOrigin(0.5);
-
-        const elapsed = this.add.text(0, 40, `(${elapsedStr} 동안)`, {
-            font: '22px sans-serif', color: '#cccccc'
-        }).setOrigin(0.5);
-
+        const line1 = this.add.text(0, -50, '오프라인 동안', { font: 'bold 32px sans-serif', color: '#ffffff' }).setOrigin(0.5);
+        const line2 = this.add.text(0, -10, '박삽돌이 혼자 팠어요!', { font: 'bold 32px sans-serif', color: '#ffffff' }).setOrigin(0.5);
+        const elapsed = this.add.text(0, 40, `(${elapsedStr} 동안)`, { font: '22px sans-serif', color: '#cccccc' }).setOrigin(0.5);
         const reward = this.add.text(0, 110, `🪙 +${rewardCoin.toLocaleString()} 삽코인 획득!`, {
             font: 'bold 36px sans-serif', color: '#ffd700',
             stroke: '#5a2d0c', strokeThickness: 5
         }).setOrigin(0.5);
-
-        const tapHint = this.add.text(0, 195, '👆 탭해서 받기', {
-            font: 'italic 22px sans-serif', color: '#aaaaaa'
-        }).setOrigin(0.5);
+        const tapHint = this.add.text(0, 195, '👆 탭해서 받기', { font: 'italic 22px sans-serif', color: '#aaaaaa' }).setOrigin(0.5);
 
         card.add([cardBg, sleepIcon, line1, line2, elapsed, reward, tapHint]);
-
         card.setScale(0.6);
         card.alpha = 0;
-        this.tweens.add({
-            targets: card, scale: 1, alpha: 1,
-            duration: 350, ease: 'Back.out'
-        });
+        this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 350, ease: 'Back.out' });
 
         overlay.once('pointerdown', () => {
-            // 즉시 입력 차단 해제 → 200ms 페이드 동안 추가 탭이 메뉴 버튼으로 통과되도록
             overlay.disableInteractive();
             if (typeof onClaim === 'function') onClaim();
             this.tweens.add({
                 targets: [card, overlay],
-                alpha: 0, scale: 0.85,
-                duration: 200,
-                onComplete: () => {
-                    card.destroy();
-                    overlay.destroy();
-                }
+                alpha: 0, scale: 0.85, duration: 200,
+                onComplete: () => { card.destroy(); overlay.destroy(); }
             });
         });
     }
