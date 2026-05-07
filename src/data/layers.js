@@ -25,8 +25,8 @@ export const LAYERS = [
         order: 1,
 
         characterY: 0.78,              // 캐릭터 발이 닿는 화면 높이 비율 (배경 땅 라인)
-        // 사용자 스펙: 튜토리얼 레이어는 빠른 첫 클리어 도파민 확보 → 100 → 50
-        requiredDigs: 50,
+        // 2026-05-07: 50 → 100 되돌림 (사용자 요청 — 첫 레이어가 너무 빨리 끝나 임팩트 부족)
+        requiredDigs: 100,
         bgColor: 0x6b4423,        // Phaser hex (진한 흙갈색)
         bgColorHex: '#6b4423',
         groundColor: 0x4a2f1a,    // 땅 부분 진한색
@@ -34,7 +34,7 @@ export const LAYERS = [
 
         comicEvent: {
             trigger: 'dig_count',
-            triggerAt: [25, 50],           // 50탭 기준 절반(25)/완료(50) 시점
+            triggerAt: [50, 100],          // 100탭 기준 절반/완료 시점
             soundType: 'foreman',          // SoundManager.playComicEventSound 키
             npc: '관리소장',
             message: '얌마! 거기 뭐해!',

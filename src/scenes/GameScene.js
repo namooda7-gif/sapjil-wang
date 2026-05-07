@@ -229,14 +229,14 @@ const FORESHADOW_LINES = [
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 에너지 드링크 (패러디 — Google Play 글로벌 출시 trademark 회피)
 //   화면 위에서 캐릭터 머리로 떨어짐 → 자동 캐치 → 일정 시간 버프
-//   - 60탭마다 7% 확률로 등장, 등급은 weighted random
+//   - 40탭마다 12% 확률로 등장, 등급은 weighted random
 //   - 같은 효과 재획득 시 지속시간 갱신 (스택 X)
-//   - DRINK_FIRST_GUARANTEED_AT: 게임 첫 실행 시 이 탭에서 무조건 1회 등장
-//     → layer_001(50탭)에서 안 보이던 가시성 문제 해결 + 신규 유저 학습
+//   - DRINK_FIRST_GUARANTEED_AT: 매 레이어 진입 후 이 탭에서 무조건 1회 등장
+//     → 모든 레이어에서 드링크 시스템 인지 보장 (이전엔 평생 1회라 거의 안 보임)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const DRINK_SPAWN_INTERVAL      = 60;
-const DRINK_SPAWN_CHANCE        = 0.07;
-const DRINK_FIRST_GUARANTEED_AT = 25;
+const DRINK_SPAWN_INTERVAL      = 40;
+const DRINK_SPAWN_CHANCE        = 0.12;
+const DRINK_FIRST_GUARANTEED_AT = 20;
 const DRINK_TYPES = {
     sapcas:    { name: '삽카스',   rarity: 'common',    emoji: '🥤', color: 0x4a9d3a, hex: '#4a9d3a', effect: 'coin',    durationMs: 30000, line: '어우 시원~ 삽카스!' },
     hotsaps:   { name: '핫삽스',   rarity: 'rare',      emoji: '🧃', color: 0xff5544, hex: '#ff5544', effect: 'combo',   durationMs: 30000, line: '핫삽스! 손이 빨라진다!' },
@@ -252,14 +252,14 @@ const DRINK_BONUS = {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 기상 악화 (실외 레이어 한정 코스메틱)
-//   60탭마다 4% 굴림 + 한 번 발동하면 12초 지속
+//   40탭마다 8% 굴림 + 한 번 발동하면 12초 지속
 //   페널티 X (모바일 캐주얼 짜증 회피) — 시각/사운드/독백만
-//   WEATHER_FIRST_GUARANTEED_AT: 게임 첫 실행 + 실외 레이어에서 이 탭에 무조건 1회
+//   WEATHER_FIRST_GUARANTEED_AT: 매 실외 레이어 진입 후 이 탭에 무조건 1회
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const WEATHER_INTERVAL            = 60;
-const WEATHER_CHANCE              = 0.04;
+const WEATHER_INTERVAL            = 40;
+const WEATHER_CHANCE              = 0.08;
 const WEATHER_DURATION            = 12000;
-const WEATHER_FIRST_GUARANTEED_AT = 40;
+const WEATHER_FIRST_GUARANTEED_AT = 30;
 // 실내 레이어 (날씨 발동 X)
 const WEATHER_INDOOR_LAYERS = new Set(['layer_004']);   // 찜질방
 const WEATHER_TYPES = {
@@ -761,6 +761,9 @@ export default class GameScene extends Phaser.Scene {
         this.foreshadowCooldown = 0;    // foreshadow 쿨다운도 리셋
         this.tapsSinceLastDrinkCheck = 0;
         this.tapsSinceLastWeatherCheck = 0;
+        // 매 레이어 진입마다 첫 드링크/기상 보장 → 모든 레이어에서 시스템 인지 + 자주 노출
+        this.firstDrinkEverSpawned = false;
+        this.firstWeatherEverSpawned = false;
         this.combo = 0;
         this.firedComicTriggers.clear();
 
