@@ -96,7 +96,8 @@ export const LAYERS = [
             { id: 't_002_04', emoji: '🎀', name: '운동회 청군 머리띠', rarity: 'rare',      reward: { coin: 120, relic: 1 },    desc: '"청군 이겨라!"의 추억' },
             { id: 't_002_05', emoji: '⚽', name: '사라진 축구공',      rarity: 'rare',      reward: { coin: 180, relic: 2 },    desc: '그날 슛이 너무 강했나...' },
             { id: 't_002_06', emoji: '🏅', name: '교장선생님 훈장',    rarity: 'epic',      reward: { coin: 400, relic: 4 },    desc: '도대체 왜 묻혀있는 거지?' },
-            { id: 't_002_07', emoji: '⏳', name: '타임캡슐 1995',      rarity: 'legendary', reward: { coin: 1500, diamond: 2 }, desc: '졸업생들의 약속이 잠든 곳' }
+            { id: 't_002_07', emoji: '⏳', name: '타임캡슐 1995',      rarity: 'legendary', reward: { coin: 1500, diamond: 2 }, desc: '졸업생들의 약속이 잠든 곳' },
+            { id: 't_002_08', emoji: '👟', name: '굴찌 운동화',         rarity: 'rare',      reward: { coin: 350, relic: 3 },    desc: '학생이 잃은 듯' }
         ],
 
         clearReward: { coin: 500, relic: 8, diamond: 0 },
@@ -188,7 +189,9 @@ export const LAYERS = [
             { id: 't_004_05', emoji: '💵', name: '구겨진 만원 지폐',        rarity: 'rare',      reward: { coin: 300, relic: 3 },    desc: '주머니에서 흘렸나봐' },
             { id: 't_004_06', emoji: '🎫', name: '찜질방 단골 회원증',      rarity: 'epic',      reward: { coin: 700, relic: 6 },    desc: '"VIP" 도장이 찍힌 그것' },
             { id: 't_004_07', emoji: '🗝️', name: '사장님의 비밀 금고열쇠',  rarity: 'legendary', reward: { coin: 3000, diamond: 5 }, desc: '왜 바닥에 묻혀있었지...?' },
-            { id: 't_004_08', emoji: '👜', name: '루이뷔돌 가방',          rarity: 'epic',      reward: { coin: 2000, relic: 8 },   desc: '왠 루이비돌' }
+            { id: 't_004_08', emoji: '👜', name: '루이뷔돌 가방',          rarity: 'epic',      reward: { coin: 2000, relic: 8 },   desc: '왠 루이비돌' },
+            { id: 't_004_09', emoji: '💍', name: '삽이아몬드 반지',        rarity: 'legendary', reward: { coin: 5500, diamond: 9 }, desc: '프러포즈 실패한 그분' },
+            { id: 't_004_10', emoji: '👜', name: '에르삽 가방',            rarity: 'epic',      reward: { coin: 2200, relic: 9 },   desc: '사장님 부인 거 맞나요?' }
         ],
 
         clearReward: { coin: 2000, relic: 18, diamond: 2 },
@@ -234,7 +237,9 @@ export const LAYERS = [
             { id: 't_005_05', emoji: '📓', name: '훈련병 일기장',          rarity: 'rare',      reward: { coin: 400, relic: 4 },     desc: '"D-547... 너무 힘들다..."' },
             { id: 't_005_06', emoji: '🎖️', name: '황금 계급장',            rarity: 'epic',      reward: { coin: 900, relic: 8 },     desc: '대장님의 것...?' },
             { id: 't_005_07', emoji: '📜', name: '비밀 작전 명령서',       rarity: 'legendary', reward: { coin: 4000, diamond: 7 },  desc: '"극비 - 절대 누설 금지" ...읽지마' },
-            { id: 't_005_08', emoji: '🪙', name: '금괴',                  rarity: 'legendary', reward: { coin: 5000, diamond: 8 },  desc: '신이시여' }
+            { id: 't_005_08', emoji: '🪙', name: '금괴',                  rarity: 'legendary', reward: { coin: 5000, diamond: 8 },  desc: '신이시여' },
+            { id: 't_005_09', emoji: '⌚', name: '롤삽스 시계',            rarity: 'epic',      reward: { coin: 1800, relic: 7 },    desc: '초침이 멈췄네' },
+            { id: 't_005_10', emoji: '🥃', name: '삽렌타인 30',            rarity: 'epic',      reward: { coin: 1500, relic: 6 },    desc: '30년산이 흙 속에' }
         ],
 
         clearReward: { coin: 4000, relic: 25, diamond: 3 },

@@ -678,7 +678,7 @@ export default class MenuScene extends Phaser.Scene {
         const cardW = width * 0.92;
         const cardH = Math.min(height * 0.88, 880);
 
-        // 딤 오버레이 (탭으로 닫기 X — 명시적 받기/닫기 버튼만 동작)
+        // 딤 오버레이 — 외곽 어디 누르면 자동 받기 + 닫기 (사용자 친화: 버튼 빗나가도 진행 가능)
         const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.8)
             .setInteractive().setDepth(120);
 
@@ -721,7 +721,11 @@ export default class MenuScene extends Phaser.Scene {
         });
 
         // ━━ 하단 버튼 (받기 or 닫기) ━━
+        // closing 가드: overlay click과 button click이 거의 동시에 들어와도 tween 중복 방지
+        let closing = false;
         const closePopup = () => {
+            if (closing) return;
+            closing = true;
             this.tweens.add({
                 targets: [card, overlay], alpha: 0, scale: 0.9,
                 duration: 280,
@@ -729,33 +733,45 @@ export default class MenuScene extends Phaser.Scene {
             });
         };
 
+        // 받기 처리 (button + overlay click 공통)
+        const claimAndClose = () => {
+            if (closing) return;
+            const result = this.attendanceManager.claim();
+            if (result) {
+                if (this.soundManager) this.soundManager.playUpgradeSound();
+                this.cameras.main.flash(220, 255, 215, 0);
+                this.spawnAttendanceFloatingReward(width / 2, height / 2, result.reward);
+            }
+            closePopup();
+        };
+
         if (cal.isClaimedToday) {
-            // 이미 받음 → 닫기 버튼만
+            // 이미 받음 → 닫기 버튼만 (큰 사이즈)
             const closeBtn = this.createAttendanceButton(
-                0, cardH / 2 - 65, 240, 64, '닫기',
+                0, cardH / 2 - 65, 280, 70, '닫기',
                 0x666666, 0x444444, '#ffffff', closePopup
             );
             card.add(closeBtn);
         } else {
-            // 받기 버튼 (오늘 보상 표시)
+            // 받기 버튼 (큰 사이즈 + 보상 표시)
             const todayCell = cal.cells.find(c => c.status === 'today');
             const reward = todayCell.reward;
             const claimBtn = this.createAttendanceButton(
-                0, cardH / 2 - 65, 320, 70,
+                0, cardH / 2 - 65, 360, 80,
                 `🎁 받기  ${reward.label}`,
-                0xffd700, 0xa07000, '#000000',
-                () => {
-                    const result = this.attendanceManager.claim();
-                    if (!result) return;
-                    if (this.soundManager) this.soundManager.playUpgradeSound();
-                    this.cameras.main.flash(220, 255, 215, 0);
-                    // floating "+보상" 텍스트 (메뉴 화면 한가운데 짧게)
-                    this.spawnAttendanceFloatingReward(width / 2, height / 2, reward);
-                    closePopup();
-                }
+                0xffd700, 0xa07000, '#000000', claimAndClose
             );
             card.add(claimBtn);
         }
+
+        // ━━ overlay 외곽 click도 받기/닫기로 처리 ━━
+        //   - 버튼 hit area 빗나가도 외곽 어디 누르면 진행됨 (모바일 친화)
+        //   - card 내부 버튼 영역 click은 button이 우선 (Phaser hit test depth 순)
+        //   - 외곽이 받기로 바뀌어도 코인+ 보상이라 손해 없음
+        overlay.on('pointerdown', () => {
+            if (cal.isClaimedToday) closePopup();
+            else                    claimAndClose();
+        });
 
         // 등장 애니
         card.setScale(0.7);
@@ -840,9 +856,11 @@ export default class MenuScene extends Phaser.Scene {
 
         container.add([shadow, top, labelTxt]);
 
-        container.setSize(w, h + SHADOW_OFFSET);
+        // hit area를 시각 사이즈보다 ±20px 확장 — 모바일에서 손가락이 가장자리 빗나가도 click 인정
+        const HIT_PAD = 20;
+        container.setSize(w + HIT_PAD * 2, h + SHADOW_OFFSET + HIT_PAD * 2);
         container.setInteractive(
-            new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h + SHADOW_OFFSET),
+            new Phaser.Geom.Rectangle(-w / 2 - HIT_PAD, -h / 2 - HIT_PAD, w + HIT_PAD * 2, h + SHADOW_OFFSET + HIT_PAD * 2),
             Phaser.Geom.Rectangle.Contains
         );
         // drag-tolerant click — 모바일 첫 탭 안정성

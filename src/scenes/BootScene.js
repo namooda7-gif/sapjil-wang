@@ -98,6 +98,10 @@ export default class BootScene extends Phaser.Scene {
         // 추가 6종 (2026-05-07 신규: 금덩어리/복권/루이뷔돌/금괴/달러/샵넬)
         ['t_001_08', 't_003_08', 't_004_08', 't_005_08', 't_006_08', 't_006_09']
             .forEach(id => this.load.image(id, `assets/treasures/${id}.png`));
+
+        // 추가 5종 (2026-05-07 명품 패러디: 굴찌/반지/에르삽/시계/술)
+        ['t_002_08', 't_004_09', 't_004_10', 't_005_09', 't_005_10']
+            .forEach(id => this.load.image(id, `assets/treasures/${id}.png`));
     }
 
     create() {
