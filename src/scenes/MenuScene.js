@@ -323,6 +323,48 @@ export default class MenuScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 모바일 안정 클릭 바인더 (drag-tolerant click)
+    //   문제: 모바일에서 손가락이 미세하게 움직이면 pointerout이 즉시 발생.
+    //         pointerup이 hit area 밖에서 일어나면 pointerupoutside만 호출되고
+    //         기존 코드는 거기서 onClick을 안 불러서 첫 탭이 무시됨.
+    //         시작 버튼 펄스(1.05x) + 모바일 터치 흔들림 = 매번 outside 처리 → 사용자 체감 "한 번에 안 됨"
+    //   해결: pointerdown 위치 기록 → pointerup/pointerupoutside 둘 다에서
+    //         이동 거리가 dragThreshold 안이면 onClick 호출 (진짜 드래그만 무시)
+    //   사용: 호출자가 onPress/onRelease 콜백으로 시각 피드백(setScale/setAlpha) 제공
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    bindMobileClick(target, onClick, options = {}) {
+        const dragThreshold = options.dragThreshold ?? 30;
+        const onPress       = options.onPress   || null;
+        const onRelease     = options.onRelease || null;
+        let pressed = false;
+        let downX = 0, downY = 0;
+
+        target.on('pointerdown', (p) => {
+            pressed = true;
+            downX = p.x;
+            downY = p.y;
+            if (onPress) onPress();
+        });
+        // pointer가 영역 밖으로 나가면 시각만 복원 (pressed는 유지 → 다시 들어오거나 outside up도 처리)
+        target.on('pointerout', () => {
+            if (onRelease) onRelease();
+        });
+
+        const handleUp = (p) => {
+            if (onRelease) onRelease();
+            if (!pressed) return;
+            pressed = false;
+            const dx = p.x - downX;
+            const dy = p.y - downY;
+            if (dx * dx + dy * dy <= dragThreshold * dragThreshold) {
+                if (onClick) onClick();
+            }
+        };
+        target.on('pointerup',         handleUp);
+        target.on('pointerupoutside',  handleUp);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // #6/#8/#2 메뉴 버튼 묶음
     //   - 신규(isFirstTime): 큰 [파러 가기 →] 하나만 + 흔드는 👆
     //   - 재진입: 시작 + 캐릭터 + 상점 + 박물관 4개 (시작은 펄스 강조)
@@ -408,14 +450,13 @@ export default class MenuScene extends Phaser.Scene {
             duration: 650, yoyo: true, repeat: -1, ease: 'Sine.inOut'
         });
 
-        // 클릭 피드백 + 핸들러
-        container.on('pointerdown',      () => container.setScale(0.95));
-        container.on('pointerout',       () => container.setScale(1));
-        container.on('pointerupoutside', () => container.setScale(1));
-        container.on('pointerup', () => {
-            container.setScale(1);
+        // 클릭 피드백 + 핸들러 (drag-tolerant — 모바일 첫 탭 안정성 보장)
+        this.bindMobileClick(container, () => {
             this.tryRequestFullscreen();
             this.scene.start('GameScene');
+        }, {
+            onPress:   () => container.setScale(0.95),
+            onRelease: () => container.setScale(1)
         });
 
         return container;
@@ -494,12 +535,12 @@ export default class MenuScene extends Phaser.Scene {
             Phaser.Geom.Rectangle.Contains
         );
 
-        container.on('pointerdown',      () => container.setScale(0.96));
-        container.on('pointerout',       () => container.setScale(1));
-        container.on('pointerupoutside', () => container.setScale(1));
-        container.on('pointerup', () => {
-            container.setScale(1);
+        // drag-tolerant click — 모바일 첫 탭 안정성
+        this.bindMobileClick(container, () => {
             if (onClick) onClick();
+        }, {
+            onPress:   () => container.setScale(0.96),
+            onRelease: () => container.setScale(1)
         });
 
         return container;
@@ -569,12 +610,13 @@ export default class MenuScene extends Phaser.Scene {
         this.bgmToggleBtn = this.add.text(x, y, '🔊', { font: '40px sans-serif' })
             .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true });
         updateIcon();
-        this.bgmToggleBtn.on('pointerdown', () => this.bgmToggleBtn.setAlpha(0.6));
-        this.bgmToggleBtn.on('pointerout',  () => this.bgmToggleBtn.setAlpha(1));
-        this.bgmToggleBtn.on('pointerup',   () => {
-            this.bgmToggleBtn.setAlpha(1);
+        // drag-tolerant click — 시각 피드백은 alpha 변화
+        this.bindMobileClick(this.bgmToggleBtn, () => {
             this.soundManager.toggleBGM();
             updateIcon();
+        }, {
+            onPress:   () => this.bgmToggleBtn.setAlpha(0.6),
+            onRelease: () => this.bgmToggleBtn.setAlpha(1)
         });
     }
 
@@ -803,12 +845,12 @@ export default class MenuScene extends Phaser.Scene {
             new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h + SHADOW_OFFSET),
             Phaser.Geom.Rectangle.Contains
         );
-        container.on('pointerdown',      () => container.setScale(0.96));
-        container.on('pointerout',       () => container.setScale(1));
-        container.on('pointerupoutside', () => container.setScale(1));
-        container.on('pointerup', () => {
-            container.setScale(1);
+        // drag-tolerant click — 모바일 첫 탭 안정성
+        this.bindMobileClick(container, () => {
             if (onClick) onClick();
+        }, {
+            onPress:   () => container.setScale(0.96),
+            onRelease: () => container.setScale(1)
         });
         return container;
     }

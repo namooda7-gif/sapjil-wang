@@ -206,6 +206,16 @@ export default class MuseumScene extends Phaser.Scene {
             align: 'center'
         }).setOrigin(0.5);
 
+        // 보물 이미지 (카드 중앙)
+        if (this.textures.exists(treasure.id)) {
+            const icon = this.add.image(0, 5, treasure.id).setDisplaySize(120, 120);
+            card.add(icon);
+            // 텍스트 위치 하단으로 밀기
+            name.setY(-CARD_H / 2 + 45);
+            layer.setY(-CARD_H / 2 + 75);
+            desc.setY(CARD_H / 2 - 85).setFontSize(15);
+        }
+
         // 뻘짓 점수 (하단)
         const sillyText = this.add.text(0, CARD_H / 2 - 25, `🎭 뻘짓 +${style.score}점`, {
             font: 'bold 20px sans-serif', color: '#ffd700'

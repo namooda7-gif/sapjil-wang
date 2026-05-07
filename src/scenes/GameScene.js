@@ -483,6 +483,13 @@ export default class GameScene extends Phaser.Scene {
             .setDisplaySize(holeW, HOLE_MIN_HEIGHT)
             .setVisible(false);
 
+        // hole.png 자체의 하단 투명 padding 자동 측정 (drawHole에서 보정용)
+        //   문제: hole 이미지에 하단 padding이 있으면 origin (0.5, 1.0) 기준 이미지 하단(=character.y)이
+        //         시각적 굴 바닥보다 아래에 있어 캐릭터 발이 굴 밖으로 노출됨 (layer 3+에서 사용자 인지)
+        //   해결: PNG 픽셀 분석해서 하단부터 첫 alpha>0 row까지를 padding ratio로 보관
+        //         drawHole에서 이미지를 그만큼 아래로 내려서 시각 바닥이 character.y와 일치하게
+        this.holeBottomPaddingRatio = this.measureBottomPaddingRatio('hole');
+
         // 흙더미 좌/우 (mound_right.png, depth 11 = 캐릭터(10)보다 앞)
         // 캐릭터 발 앞쪽에 쌓이는 입체감 → 진짜 땅속에 파묻힌 느낌
         this.leftMound = this.add.image(this.character.x, this.character.y, 'mound_right')
@@ -1273,7 +1280,10 @@ export default class GameScene extends Phaser.Scene {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 인게임 보물 파밍 (팝업 없이 인게임 연출):
     //  Phase 1) 발 근처에서 큰 아이콘 + 보물 이름 텍스트 펑 등장 (250ms)
-    //  Phase 2) 그 자리에서 holdMs 유지 (common/rare/epic: 600ms / legendary: 1000ms)
+    //  Phase 1.5) 좌/우 showcase 위치로 부드럽게 이동 (300ms)
+    //         — 보물마다 좌/우 교대(_treasureLaneIdx) → 연속 출현 시 겹침 방지
+    //  Phase 2) showcase 위치에서 holdMs 유지 (common/rare/epic: 600ms / legendary: 1000ms)
+    //         — 사용자가 어떤 보물인지 식별할 시간
     //  Phase 3) 우상단으로 포물선 비행하면서 점점 작아짐 (flyMs)
     //  Phase 4) 도착 시 HUD '+이름' 텍스트 표시, 2초 후 페이드아웃
     // legendary는 별 파티클 폭발 + 더 천천히 비행 (별도 spawnLegendaryStars 호출)
@@ -1297,17 +1307,33 @@ export default class GameScene extends Phaser.Scene {
         const targetX = width - 80;
         const targetY = 80;
 
+        // ━━ 좌/우 lane 교대 (보물별로 번갈아) ━━
+        //   문제: 연속 보물이 같은 경로로 비행해서 겹쳐 보이면 어떤 보물인지 식별 불가
+        //   해결: 보물마다 좌/우 showcase 위치를 교대 → 사용자가 식별 시간 확보
+        this._treasureLaneIdx = ((this._treasureLaneIdx ?? -1) + 1) % 2;
+        const direction = this._treasureLaneIdx === 0 ? -1 : 1;        // -1=왼쪽, +1=오른쪽
+        const lateralOffset = width * 0.22 * direction;                 // 화면 22% 좌/우
+        // 컨테이너에 아이콘(왼쪽 -90)과 이름(오른쪽)이 둘 다 있어 폭이 넓음 → 화면 끝 여유 130
+        const showcaseX = Phaser.Math.Clamp(startX + lateralOffset, 130, width - 130);
+        const showcaseY = startY - 70;                                  // 살짝 위로 (캐릭터 머리 근처)
+
         // 컨테이너 - 아이콘 + 이름 텍스트가 함께 등장/유지/비행
         const container = this.add.container(startX, startY).setDepth(50);
 
         // 아이콘 (반지름 80, 이모지 100px = 이전 대비 약 3배)
-        // 발견된 보물별 고유 이모지(layers.js의 treasure.emoji) 사용 - 없으면 기본 🏺
+        // 텍스처가 있으면 image, 없으면 emoji fallback (treasure.emoji or 기본 🏺)
         const iconRelX = -90;                 // 컨테이너 안에서 아이콘 중심 X
         const iconBg = this.add.circle(iconRelX, 0, 80, style.int, 1)
             .setStrokeStyle(6, 0xffffff);
-        const iconEmoji = this.add.text(iconRelX, 0, treasure.emoji || '🏺', {
-            font: '100px sans-serif'
-        }).setOrigin(0.5);
+
+        let iconChild;
+        if (this.textures.exists(treasure.id)) {
+            iconChild = this.add.image(iconRelX, 0, treasure.id).setDisplaySize(130, 130);
+        } else {
+            iconChild = this.add.text(iconRelX, 0, treasure.emoji || '🏺', {
+                font: '100px sans-serif'
+            }).setOrigin(0.5);
+        }
 
         // 보물 이름 텍스트 (아이콘 오른쪽, 등급별 색상/크기)
         const nameText = this.add.text(10, 0, treasure.name, {
@@ -1317,9 +1343,9 @@ export default class GameScene extends Phaser.Scene {
             strokeThickness: 5
         }).setOrigin(0, 0.5);
 
-        container.add([iconBg, iconEmoji, nameText]);
+        container.add([iconBg, iconChild, nameText]);
 
-        // ━━ Phase 1: 펑 등장 (250ms) ━━
+        // ━━ Phase 1: 펑 등장 (250ms, 발 근처) ━━
         container.setScale(0.3);
         container.alpha = 0;
         this.tweens.add({
@@ -1333,10 +1359,20 @@ export default class GameScene extends Phaser.Scene {
             this.spawnLegendaryStars(startX, startY);
         }
 
-        // ━━ Phase 2: holdMs 유지 후 비행 시작 ━━
-        this.time.delayedCall(250 + style.holdMs, () => {
+        // ━━ Phase 1.5: 좌/우 showcase 위치로 부드럽게 이동 (300ms) ━━
+        const SHOWCASE_TRAVEL_MS = 300;
+        this.time.delayedCall(250, () => {
+            this.tweens.add({
+                targets: container,
+                x: showcaseX, y: showcaseY,
+                duration: SHOWCASE_TRAVEL_MS, ease: 'Sine.out'
+            });
+        });
+
+        // ━━ Phase 2: showcase 도착 + holdMs 유지 후 비행 시작 ━━
+        this.time.delayedCall(250 + SHOWCASE_TRAVEL_MS + style.holdMs, () => {
             // ━━ Phase 3: 우상단으로 비행 + 점점 작아짐 ━━
-            // X: 선형 가속
+            // X: showcaseX → targetX 가속
             this.tweens.add({
                 targets: container,
                 x: targetX,
@@ -1344,12 +1380,12 @@ export default class GameScene extends Phaser.Scene {
                 duration: style.flyMs,
                 ease: 'Quad.in'
             });
-            // Y: 포물선 (위로 솟구쳤다 떨어짐)
+            // Y: showcaseY → 위 솟구침 → targetY (포물선)
             this.tweens.chain({
                 targets: container,
                 tweens: [
-                    { y: startY - 180, duration: Math.floor(style.flyMs * 0.4), ease: 'Quad.out' },
-                    { y: targetY,      duration: Math.floor(style.flyMs * 0.6), ease: 'Quad.in'  }
+                    { y: showcaseY - 150, duration: Math.floor(style.flyMs * 0.4), ease: 'Quad.out' },
+                    { y: targetY,         duration: Math.floor(style.flyMs * 0.6), ease: 'Quad.in'  }
                 ]
             });
             // 회전
@@ -1477,27 +1513,43 @@ export default class GameScene extends Phaser.Scene {
             stroke: '#000000', strokeThickness: 3
         }).setOrigin(0.5);
 
-        // 보물 이름 (48px 볼드)
-        const name = this.add.text(0, -70, treasure.name, {
+        // 보물 이미지 (이름 위에 배치)
+        if (this.textures.exists(treasure.id)) {
+            const popupIcon = this.add.image(0, -70, treasure.id)
+                .setDisplaySize(180, 180);
+            card.add(popupIcon);
+            // 이름 위치를 이미지 아래로 조정
+            var nameY = 50;
+            var descY = 130;
+            var rewardY = 210;
+        } else {
+            // 이미지가 없으면 기존 텍스트 레이아웃 유지
+            var nameY = -70;
+            var descY = 30;
+            var rewardY = 140;
+        }
+
+        // 보물 이름
+        const name = this.add.text(0, nameY, treasure.name, {
             font: 'bold 48px sans-serif', color: '#ffffff',
             wordWrap: { width: cardW - 60 },
             align: 'center'
         }).setOrigin(0.5);
 
-        // 설명 (28px 이탤릭)
-        const desc = this.add.text(0, 30, treasure.desc || '', {
+        // 설명
+        const desc = this.add.text(0, descY, treasure.desc || '', {
             font: 'italic 28px sans-serif', color: '#dddddd',
             wordWrap: { width: cardW - 80 },
             align: 'center'
         }).setOrigin(0.5);
 
-        // 보상 (36px 황금)
+        // 보상
         const rewardParts = [];
         const r = treasure.reward || {};
         if (r.coin)    rewardParts.push(`🪙 +${r.coin}`);
         if (r.relic)   rewardParts.push(`🏺 +${r.relic}`);
         if (r.diamond) rewardParts.push(`💎 +${r.diamond}`);
-        const rewardText = this.add.text(0, 140, rewardParts.join('   '), {
+        const rewardText = this.add.text(0, rewardY, rewardParts.join('   '), {
             font: 'bold 36px sans-serif', color: '#ffd700',
             stroke: '#000000', strokeThickness: 5
         }).setOrigin(0.5);
@@ -2147,7 +2199,46 @@ export default class GameScene extends Phaser.Scene {
         const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) * HOLE_PADDING_FACTOR);
 
         this.holeImage.setDisplaySize(w, h);
-        this.holeImage.y = holeBottomY;
+        // 하단 padding 보정: hole.png 자체의 투명 하단 영역만큼 이미지를 아래로 내림
+        //   → 시각적 굴 바닥이 holeBottomY(=character.y)와 정확히 일치
+        //   → 캐릭터 발이 굴 안으로 자연스럽게 들어감
+        const bottomPad = h * (this.holeBottomPaddingRatio || 0);
+        this.holeImage.y = holeBottomY + bottomPad;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // PNG 텍스처의 하단 투명 padding 자동 측정 (0~1 ratio)
+    //   - 이미지 픽셀을 canvas로 읽어 alpha=0 row를 하단부터 카운트
+    //   - 결과: padding_pixels / image_height
+    //   - 같은 도메인 정적 자산이라 cross-origin 차단 없음 (자기 호스트)
+    //   - 측정 실패 시 0 반환 → 기존 동작과 동일
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    measureBottomPaddingRatio(textureKey) {
+        if (!this.textures.exists(textureKey)) return 0;
+        const tex = this.textures.get(textureKey).getSourceImage();
+        if (!tex || !tex.width || !tex.height) return 0;
+        const w = tex.width, h = tex.height;
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return 0;
+            ctx.drawImage(tex, 0, 0);
+            const data = ctx.getImageData(0, 0, w, h).data;
+            // 하단 row부터 위로 → 첫 alpha > 0 row 찾기
+            for (let y = h - 1; y >= 0; y--) {
+                for (let x = 0; x < w; x++) {
+                    if (data[(y * w + x) * 4 + 3] > 0) {
+                        const paddingPx = h - 1 - y;
+                        return paddingPx / h;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`[hole padding] 측정 실패 (${textureKey}):`, e);
+        }
+        return 0;
     }
 
     // 두 색상 보간 (0xRRGGBB hex)
