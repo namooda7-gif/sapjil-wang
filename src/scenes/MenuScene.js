@@ -10,6 +10,7 @@
 import Phaser from 'phaser';
 import CurrencyManager from '../managers/CurrencyManager.js';
 import OfflineRewardManager from '../managers/OfflineRewardManager.js';
+import AttendanceManager from '../managers/AttendanceManager.js';
 import SoundManager from '../managers/SoundManager.js';
 
 // 캐릭터 터치 시 순환 라인 (인덱스 0은 초기 말풍선과 동일)
@@ -67,20 +68,43 @@ export default class MenuScene extends Phaser.Scene {
         // ━━━━ #2/#6/#8 좌측 버튼 (신규는 시작만, 재진입은 4개) ━━━━
         this.createMenuButtons(width, height, isFirstTime);
 
+        // ━━━━ #4 메뉴 임팩트 (번쩍번쩍 첫 인상) ━━━━
+        //   dbe1bfe 커밋 8개 패키지 중 누락됐던 #4 자리 (2026-05-07 보강)
+        //   - 황금 fadeFrom: 메뉴가 황금색에서 떠오르는 영화 같은 진입
+        //   - createTitleSparkles: 타이틀 주변 황금 별 파티클 지속 발사
+        //   "번쩍번쩍"이지 "정신없음"은 아님 — 효과 2개 이내로 절제
+        this.cameras.main.fadeFrom(600, 255, 215, 0, true);
+        this.createTitleSparkles(width / 2, height * 0.25);
+
         // ━━━━ BGM 시스템 + 오프라인 보상 ━━━━
         this.soundManager = new SoundManager(this);
         this.soundManager.playBGM('bgm_menu');
         this.createBGMToggleButton(width - 60, 60);
+
+        // ━━━━ 출석 보상 매니저 (오프라인 닫힌 후 출석 팝업 체이닝) ━━━━
+        // 신규 유저(isFirstTime)는 스킵 — 사용자가 만든 "파러 가기" 큰 시작 버튼 첫 인상을
+        // 출석 팝업이 가려서 망치지 않도록. 두 번째 진입부터 출석 노출.
+        this.attendanceManager = new AttendanceManager(this.currencyManager);
+        const showAttendanceIfDue = () => {
+            if (isFirstTime) return;
+            if (!this.attendanceManager.canClaimToday()) return;
+            this.time.delayedCall(300, () => this.showAttendancePopup());
+        };
 
         const reward = this.offlineRewardManager.getPendingReward();
         if (reward > 0) {
             this.soundManager.playOfflineRewardSound();
             this.showOfflineRewardPopup(
                 reward, this.offlineRewardManager.formatElapsed(),
-                () => this.offlineRewardManager.claim()
+                () => {
+                    this.offlineRewardManager.claim();
+                    // 페이드아웃(200ms) 끝난 후 출석 팝업 띄움 → 두 팝업 겹침 방지
+                    this.time.delayedCall(350, showAttendanceIfDue);
+                }
             );
         } else {
             this.offlineRewardManager.markSeen();
+            showAttendanceIfDue();
         }
         if (!this._beforeunloadHooked) {
             window.addEventListener('beforeunload', () => this.offlineRewardManager.markSeen());
@@ -212,6 +236,40 @@ export default class MenuScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // #4 메뉴 임팩트 — 타이틀 주변 황금 sparkle 지속 발사
+    //   sin 곡선 alpha/scale → 작은 별이 깜빡거리며 떠올랐다 사라짐
+    //   GameScene 보물 팝업 sparkle과 동일 시스템, 메뉴 톤 맞춤
+    //   영역: 타이틀(가로 480 / 세로 160) 주변, 110ms마다 1개 (지속)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createTitleSparkles(cx, cy) {
+        if (!this.textures.exists('__menuSparkle')) {
+            const stg = this.make.graphics({ x: 0, y: 0, add: false });
+            stg.fillStyle(0xffffff, 1);
+            stg.fillCircle(8, 8, 8);
+            stg.generateTexture('__menuSparkle', 16, 16);
+            stg.destroy();
+        }
+        this.add.particles(0, 0, '__menuSparkle', {
+            x: { min: cx - 240, max: cx + 240 },
+            y: { min: cy - 90,  max: cy + 70 },
+            speed: { min: 0, max: 25 },
+            angle: { min: 0, max: 360 },
+            scale: {
+                onEmit: () => 0,
+                onUpdate: (p, k, t) => Math.sin(t * Math.PI) * 1.3
+            },
+            alpha: {
+                onEmit: () => 0,
+                onUpdate: (p, k, t) => Math.sin(t * Math.PI)
+            },
+            lifespan: { min: 900, max: 1700 },
+            frequency: 110,
+            quantity: 1,
+            tint: [0xffd700, 0xffffff, 0xffeb3b, 0xffe066]
+        }).setDepth(11);   // 타이틀 컨테이너(10)보다 한 단계 위
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // #3 박삽돌 - 터치 시 라인 순환 + 깜짝 흔들림
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createInteractiveCharacter(width, height) {
@@ -288,7 +346,7 @@ export default class MenuScene extends Phaser.Scene {
         this.createStartButton(btnX, btnYs[0], btnW, btnH);
         this.createWaggleHand(btnX + btnW / 2 + 30, btnYs[0]);
         this.createIconButton(btnX, btnYs[1], btnW, btnH, '👷', '캐릭터', () => {
-            console.log('CharacterScene 미구현');
+            this.showComingSoonToast('캐릭터 선택은 곧 추가됩니다');
         });
         this.createIconButton(btnX, btnYs[2], btnW, btnH, '🛒', '상점', () => {
             this.scene.start('ShopScene');
@@ -480,6 +538,26 @@ export default class MenuScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 미구현 메뉴 클릭 시 짧은 토스트 (console.log 대신 사용자에게 보이는 피드백)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    showComingSoonToast(msg) {
+        const { width, height } = this.cameras.main;
+        const txt = this.add.text(width / 2, height * 0.85, msg, {
+            font: 'bold 22px sans-serif',
+            color: '#ffffff',
+            backgroundColor: '#000000cc',
+            padding: { x: 18, y: 12 },
+            stroke: '#000', strokeThickness: 2
+        }).setOrigin(0.5).setDepth(60);
+        this.tweens.add({
+            targets: txt,
+            alpha: 0, y: txt.y - 30,
+            delay: 1500, duration: 400,
+            onComplete: () => txt.destroy()
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // BGM ON/OFF 토글 (기존)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createBGMToggleButton(x, y) {
@@ -539,6 +617,214 @@ export default class MenuScene extends Phaser.Scene {
                 alpha: 0, scale: 0.85, duration: 200,
                 onComplete: () => { card.destroy(); overlay.destroy(); }
             });
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 출석 보상 팝업 (30일 캘린더 그리드)
+    //   카드 안: 타이틀 + 30셀 그리드(5×6) + 받기/닫기 버튼
+    //   오늘 셀: 황금 외곽 + 펄스
+    //   받은 셀: 녹색 외곽 + ✓ 오버레이
+    //   미래 셀: 회색 + alpha 0.7
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    showAttendancePopup() {
+        if (!this.attendanceManager) return;
+        const { width, height } = this.cameras.main;
+        const cal = this.attendanceManager.getCalendarData();
+
+        // 카드 사이즈 (모바일 세로형 기준 — 폭 92%, 높이 88% 또는 880px)
+        const cardW = width * 0.92;
+        const cardH = Math.min(height * 0.88, 880);
+
+        // 딤 오버레이 (탭으로 닫기 X — 명시적 받기/닫기 버튼만 동작)
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.8)
+            .setInteractive().setDepth(120);
+
+        const card = this.add.container(width / 2, height / 2).setDepth(121);
+        const cardBg = this.add.rectangle(0, 0, cardW, cardH, 0x2a1a0a, 1)
+            .setStrokeStyle(6, 0xffd700);
+
+        const title = this.add.text(0, -cardH / 2 + 50, '📅 출석 체크', {
+            font: 'bold 38px sans-serif', color: '#ffd700',
+            stroke: '#5a2d0c', strokeThickness: 5
+        }).setOrigin(0.5);
+
+        const subText = cal.isClaimedToday
+            ? `오늘은 받았어요 (Day ${cal.todayDay}) — 내일 또 봬요!`
+            : `오늘은 Day ${cal.todayDay}!`;
+        const subtitle = this.add.text(0, -cardH / 2 + 95, subText, {
+            font: '20px sans-serif', color: '#ffffff'
+        }).setOrigin(0.5);
+
+        card.add([cardBg, title, subtitle]);
+
+        // ━━ 그리드 (5열 × 6행 = 30셀) ━━
+        const cols = 5, rows = 6;
+        const gridTop = -cardH / 2 + 135;
+        const gridSidePad = 20;
+        const cellW = (cardW - gridSidePad * 2) / cols;
+        const cellH = 95;
+        const cellInnerW = cellW - 8;
+        const cellInnerH = cellH - 8;
+        const gridLeft = -cellW * cols / 2 + cellW / 2;
+
+        cal.cells.forEach((cell, idx) => {
+            const c = idx % cols;
+            const r = Math.floor(idx / cols);
+            const cx = gridLeft + c * cellW;
+            const cy = gridTop + r * cellH + cellH / 2;
+            const cellGroup = this.createAttendanceCell(cell, cellInnerW, cellInnerH);
+            cellGroup.setPosition(cx, cy);
+            card.add(cellGroup);
+        });
+
+        // ━━ 하단 버튼 (받기 or 닫기) ━━
+        const closePopup = () => {
+            this.tweens.add({
+                targets: [card, overlay], alpha: 0, scale: 0.9,
+                duration: 280,
+                onComplete: () => { card.destroy(); overlay.destroy(); }
+            });
+        };
+
+        if (cal.isClaimedToday) {
+            // 이미 받음 → 닫기 버튼만
+            const closeBtn = this.createAttendanceButton(
+                0, cardH / 2 - 65, 240, 64, '닫기',
+                0x666666, 0x444444, '#ffffff', closePopup
+            );
+            card.add(closeBtn);
+        } else {
+            // 받기 버튼 (오늘 보상 표시)
+            const todayCell = cal.cells.find(c => c.status === 'today');
+            const reward = todayCell.reward;
+            const claimBtn = this.createAttendanceButton(
+                0, cardH / 2 - 65, 320, 70,
+                `🎁 받기  ${reward.label}`,
+                0xffd700, 0xa07000, '#000000',
+                () => {
+                    const result = this.attendanceManager.claim();
+                    if (!result) return;
+                    if (this.soundManager) this.soundManager.playUpgradeSound();
+                    this.cameras.main.flash(220, 255, 215, 0);
+                    // floating "+보상" 텍스트 (메뉴 화면 한가운데 짧게)
+                    this.spawnAttendanceFloatingReward(width / 2, height / 2, reward);
+                    closePopup();
+                }
+            );
+            card.add(claimBtn);
+        }
+
+        // 등장 애니
+        card.setScale(0.7);
+        card.alpha = 0;
+        this.tweens.add({
+            targets: card, scale: 1, alpha: 1, duration: 350, ease: 'Back.out'
+        });
+    }
+
+    // 출석 셀 1칸 (Day N + 보상 이모지/수량 + 상태별 색)
+    createAttendanceCell(cell, w, h) {
+        const container = this.add.container(0, 0);
+        const radius = 10;
+
+        const styleMap = {
+            claimed: { bg: 0x1f3320, border: 0x4caf50, alpha: 1.0,  dayColor: '#88dd88', amountColor: '#dddddd' },
+            today:   { bg: 0x4a3520, border: 0xffd700, alpha: 1.0,  dayColor: '#ffd700', amountColor: '#ffffff' },
+            future:  { bg: 0x1f1f1f, border: 0x555555, alpha: 0.75, dayColor: '#888888', amountColor: '#777777' }
+        };
+        const s = styleMap[cell.status] || styleMap.future;
+
+        const bg = this.add.graphics();
+        bg.fillStyle(s.bg, s.alpha);
+        bg.fillRoundedRect(-w / 2, -h / 2, w, h, radius);
+        bg.lineStyle(cell.status === 'today' ? 3 : 2, s.border, 1);
+        bg.strokeRoundedRect(-w / 2, -h / 2, w, h, radius);
+
+        const dayLabel = this.add.text(0, -h / 2 + 12, `Day ${cell.day}`, {
+            font: 'bold 14px sans-serif', color: s.dayColor
+        }).setOrigin(0.5, 0);
+
+        const iconChar = cell.reward.type === 'coin'    ? '🪙'
+                       : cell.reward.type === 'relic'   ? '🏺'
+                       : '💎';
+        const icon = this.add.text(0, 2, iconChar, { font: '28px sans-serif' }).setOrigin(0.5);
+
+        const amount = this.add.text(0, h / 2 - 12, `+${cell.reward.amount}`, {
+            font: 'bold 14px sans-serif', color: s.amountColor
+        }).setOrigin(0.5, 1);
+
+        container.add([bg, dayLabel, icon, amount]);
+
+        if (cell.status === 'claimed') {
+            const check = this.add.text(0, 2, '✓', {
+                font: 'bold 44px sans-serif', color: '#4caf50',
+                stroke: '#000', strokeThickness: 3
+            }).setOrigin(0.5).setAlpha(0.85);
+            container.add(check);
+        }
+
+        if (cell.status === 'today') {
+            // 펄스 (시선 끌기)
+            this.tweens.add({
+                targets: container,
+                scale: { from: 1.0, to: 1.06 },
+                duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+            });
+        }
+
+        return container;
+    }
+
+    // 출석 팝업 전용 라운드 버튼 (받기/닫기)
+    createAttendanceButton(x, y, w, h, label, colorTop, colorBottom, textColor, onClick) {
+        const container = this.add.container(x, y);
+        const radius = 16;
+        const SHADOW_OFFSET = 6;
+
+        const shadow = this.add.graphics();
+        shadow.fillStyle(colorBottom, 1);
+        shadow.fillRoundedRect(-w / 2, -h / 2 + SHADOW_OFFSET, w, h, radius);
+
+        const top = this.add.graphics();
+        top.fillStyle(colorTop, 1);
+        top.fillRoundedRect(-w / 2, -h / 2, w, h, radius);
+        top.lineStyle(3, 0x000000, 1);
+        top.strokeRoundedRect(-w / 2, -h / 2, w, h, radius);
+
+        const labelTxt = this.add.text(0, 0, label, {
+            font: 'bold 24px sans-serif', color: textColor
+        }).setOrigin(0.5);
+
+        container.add([shadow, top, labelTxt]);
+
+        container.setSize(w, h + SHADOW_OFFSET);
+        container.setInteractive(
+            new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h + SHADOW_OFFSET),
+            Phaser.Geom.Rectangle.Contains
+        );
+        container.on('pointerdown',      () => container.setScale(0.96));
+        container.on('pointerout',       () => container.setScale(1));
+        container.on('pointerupoutside', () => container.setScale(1));
+        container.on('pointerup', () => {
+            container.setScale(1);
+            if (onClick) onClick();
+        });
+        return container;
+    }
+
+    // 출석 받은 후 화면 중앙에 "+보상" 짧게 떠오름 (받았다는 시각 피드백)
+    spawnAttendanceFloatingReward(x, y, reward) {
+        const txt = this.add.text(x, y, reward.label, {
+            font: 'bold 56px sans-serif',
+            color: '#ffd700',
+            stroke: '#5a2d0c', strokeThickness: 6
+        }).setOrigin(0.5).setDepth(140);
+        this.tweens.add({
+            targets: txt,
+            y: y - 140, alpha: 0,
+            duration: 1400, ease: 'Quad.out',
+            onComplete: () => txt.destroy()
         });
     }
 }

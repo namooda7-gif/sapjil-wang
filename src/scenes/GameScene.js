@@ -226,11 +226,14 @@ const FORESHADOW_LINES = [
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 에너지 드링크 (패러디 — Google Play 글로벌 출시 trademark 회피)
 //   화면 위에서 캐릭터 머리로 떨어짐 → 자동 캐치 → 일정 시간 버프
-//   - 100탭마다 7% 확률로 등장, 등급은 weighted random
+//   - 60탭마다 7% 확률로 등장, 등급은 weighted random
 //   - 같은 효과 재획득 시 지속시간 갱신 (스택 X)
+//   - DRINK_FIRST_GUARANTEED_AT: 게임 첫 실행 시 이 탭에서 무조건 1회 등장
+//     → layer_001(50탭)에서 안 보이던 가시성 문제 해결 + 신규 유저 학습
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const DRINK_SPAWN_INTERVAL = 100;
-const DRINK_SPAWN_CHANCE   = 0.07;
+const DRINK_SPAWN_INTERVAL      = 60;
+const DRINK_SPAWN_CHANCE        = 0.07;
+const DRINK_FIRST_GUARANTEED_AT = 25;
 const DRINK_TYPES = {
     sapcas:    { name: '삽카스',   rarity: 'common',    emoji: '🥤', color: 0x4a9d3a, hex: '#4a9d3a', effect: 'coin',    durationMs: 30000, line: '어우 시원~ 삽카스!' },
     hotsaps:   { name: '핫삽스',   rarity: 'rare',      emoji: '🧃', color: 0xff5544, hex: '#ff5544', effect: 'combo',   durationMs: 30000, line: '핫삽스! 손이 빨라진다!' },
@@ -246,12 +249,14 @@ const DRINK_BONUS = {
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 기상 악화 (실외 레이어 한정 코스메틱)
-//   100탭마다 4% 굴림 + 한 번 발동하면 12초 지속
+//   60탭마다 4% 굴림 + 한 번 발동하면 12초 지속
 //   페널티 X (모바일 캐주얼 짜증 회피) — 시각/사운드/독백만
+//   WEATHER_FIRST_GUARANTEED_AT: 게임 첫 실행 + 실외 레이어에서 이 탭에 무조건 1회
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const WEATHER_INTERVAL  = 100;
-const WEATHER_CHANCE    = 0.04;
-const WEATHER_DURATION  = 12000;
+const WEATHER_INTERVAL            = 60;
+const WEATHER_CHANCE              = 0.04;
+const WEATHER_DURATION            = 12000;
+const WEATHER_FIRST_GUARANTEED_AT = 40;
 // 실내 레이어 (날씨 발동 X)
 const WEATHER_INDOOR_LAYERS = new Set(['layer_004']);   // 찜질방
 const WEATHER_TYPES = {
@@ -302,6 +307,11 @@ export default class GameScene extends Phaser.Scene {
         this.tapsSinceLastDrinkCheck = 0;
         this.activeBuffs = { coin: 0, combo: 0, digMult: 0 };
         this.buffEdgeGlow = null;       // 화면 가장자리 글로우 graphics
+        this.buffHUD = null;            // 활성 버프 텍스트 컨테이너 (SOUL 게이지 옆)
+        this._lastBuffHudState = '';    // 변경 감지 캐시 (매 프레임 재생성 방지)
+        // 게임 처음 실행 시 첫 드링크/기상 보장 플래그 (인스턴스 단위 — 씬 재시작 시 리셋)
+        this.firstDrinkEverSpawned = false;
+        this.firstWeatherEverSpawned = false;
 
         // ━━ 기상 악화 ━━
         this.tapsSinceLastWeatherCheck = 0;
@@ -587,6 +597,11 @@ export default class GameScene extends Phaser.Scene {
         }).setOrigin(0.5, 0).setDepth(22);
         // 보관 (resize용)
         this._soulGaugeRect = { x: SOUL_X, y: SOUL_Y, w: SOUL_W, h: SOUL_H };
+
+        // ━━━ 활성 버프 HUD (SOUL 게이지 오른쪽) ━━━
+        // 드링크 마시면 여기에 [이모지 + 효과 + 남은 초] 라인이 추가됨
+        // 가장자리 글로우는 "뭔가 활성됨"만 알려주고, 어떤 효과인지/얼마 남았는지는 여기서 확인
+        this.buffHUD = this.add.container(SOUL_X + SOUL_W + 10, SOUL_Y).setDepth(22);
 
         // ━━━ 보물 발견 직전 황금빛 foreshadow graphics ━━━
         // 캐릭터 발 주변에 잠시 황금빛 반짝임 표시 (depth 9 = 캐릭터 바로 아래)
@@ -1030,11 +1045,25 @@ export default class GameScene extends Phaser.Scene {
         // 에너지 드링크 / 기상 악화 굴림
         this.tapsSinceLastDrinkCheck   += 1;
         this.tapsSinceLastWeatherCheck += 1;
-        if (this.tapsSinceLastDrinkCheck >= DRINK_SPAWN_INTERVAL) {
+
+        // 첫 드링크 보장 — 게임 처음 시작한 신규 유저가 layer_001(50탭)에서도 1번은 보게
+        // (이전엔 INTERVAL 100탭이라 layer_001에서 spawn 굴림 자체가 없었음)
+        if (!this.firstDrinkEverSpawned && this.digCount >= DRINK_FIRST_GUARANTEED_AT) {
+            this.firstDrinkEverSpawned = true;
+            this.tapsSinceLastDrinkCheck = 0;
+            this.spawnDrink();
+        } else if (this.tapsSinceLastDrinkCheck >= DRINK_SPAWN_INTERVAL) {
             this.tapsSinceLastDrinkCheck = 0;
             if (Math.random() < DRINK_SPAWN_CHANCE) this.spawnDrink();
         }
-        if (this.tapsSinceLastWeatherCheck >= WEATHER_INTERVAL) {
+
+        // 첫 기상 보장 — 실외 레이어에서만 (찜질방 등 실내는 스킵)
+        const layerOutdoor = this.layerData && !WEATHER_INDOOR_LAYERS.has(this.layerData.id);
+        if (!this.firstWeatherEverSpawned && layerOutdoor && this.digCount >= WEATHER_FIRST_GUARANTEED_AT) {
+            this.firstWeatherEverSpawned = true;
+            this.tapsSinceLastWeatherCheck = 0;
+            this.maybeStartWeather();
+        } else if (this.tapsSinceLastWeatherCheck >= WEATHER_INTERVAL) {
             this.tapsSinceLastWeatherCheck = 0;
             if (Math.random() < WEATHER_CHANCE) this.maybeStartWeather();
         }
@@ -1738,6 +1767,48 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 활성 버프 HUD — SOUL 게이지 옆에 [이모지 + 효과 + 남은 초] 세로 나열
+    //   변경 감지 캐시(_lastBuffHudState)로 활성 키/초 변화 시에만 텍스트 재생성
+    //   → 매 프레임 호출돼도 GC 압박 X
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    drawBuffHUD() {
+        if (!this.buffHUD) return;
+        const now = this.time.now;
+        const items = [
+            { key: 'coin',    icon: '🪙', label: '코인×1.2' },
+            { key: 'combo',   icon: '🔥', label: '콤보×1.5' },
+            { key: 'digMult', icon: '⚡', label: '진행×1.5' }
+        ];
+
+        // 활성 키 + 남은 초 시그니처 (초 단위만 변해도 갱신)
+        const sig = items
+            .filter(it => this.activeBuffs[it.key] > now)
+            .map(it => `${it.key}:${Math.ceil((this.activeBuffs[it.key] - now) / 1000)}`)
+            .join('|');
+        if (this._lastBuffHudState === sig) return;
+        this._lastBuffHudState = sig;
+
+        this.buffHUD.removeAll(true);
+        let row = 0;
+        for (const it of items) {
+            const ends = this.activeBuffs[it.key];
+            if (ends <= now) continue;
+            const remain = Math.ceil((ends - now) / 1000);
+            const txt = this.add.text(0, row * 30,
+                `${it.icon} ${it.label} ${remain}s`,
+                {
+                    font: 'bold 18px sans-serif',
+                    color: '#ffd700',
+                    stroke: '#000', strokeThickness: 3,
+                    backgroundColor: '#00000099',
+                    padding: { x: 8, y: 4 }
+                });
+            this.buffHUD.add(txt);
+            row += 1;
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 기상 악화 (실외 한정 코스메틱) - rain/snow/typhoon
     //   파티클 + tint 오버레이 + 독백, 12초 후 페이드아웃
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2266,6 +2337,7 @@ export default class GameScene extends Phaser.Scene {
         this.drawHole();
         this.drawMounds();
         this.drawUndergroundOverlay();
+        this.drawBuffHUD();
 
         // 파티클이 흙더미 bbox 안에 들어오면 즉시 사라짐 (alpha 0 처리)
         // 원/사각 두 emitter 모두 검사
