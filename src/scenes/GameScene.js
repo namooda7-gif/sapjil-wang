@@ -63,8 +63,11 @@ const INITIAL_TILE_POSITION_Y = 0;  // 시작 시 텍스처 스크롤 위치 (�
 //     끝없이 이어지면서 보임 (단색 어둠으로 덮지 않음)
 //   - LOOP_START_ROW = 1000: 지표면 라인(903) 살짝 아래 = 안전하게 지하 영역
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const LOOP_START_ROW = 1000;
-const LOOP_TEXTURE_HEIGHT = BG_IMAGE_HEIGHT - LOOP_START_ROW; // = 1580
+// LOOP_START_ROW = 1300: 화면 height(~1280)와 LOOP_TEXTURE_HEIGHT(1280)가 맞아야
+// wrap이 정확히 화면 끝에서 이어짐. 1000이면 LOOP_TEXTURE_HEIGHT=1580이 화면보다 커서
+// 학교 거의 다 팠을 때 지상 이미지가 화면 아래에 잘못 보이는 wrap 오류 발생
+const LOOP_START_ROW = 1300;
+const LOOP_TEXTURE_HEIGHT = BG_IMAGE_HEIGHT - LOOP_START_ROW; // = 1280
 
 // 하단 HUD(깊이 표시 / 메뉴 버튼) 화면 바닥에서 띄우는 마진 (게임 좌표 px)
 //   - 폰 하단의 시스템 UI(제스처 바, 내비 버튼) 영역에 가리지 않도록 충분히 띄움
@@ -2199,10 +2202,13 @@ export default class GameScene extends Phaser.Scene {
         const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) * HOLE_PADDING_FACTOR);
 
         this.holeImage.setDisplaySize(w, h);
-        // 하단 padding 보정: hole.png 자체의 투명 하단 영역만큼 이미지를 아래로 내림
-        //   → 시각적 굴 바닥이 holeBottomY(=character.y)와 정확히 일치
-        //   → 캐릭터 발이 굴 안으로 자연스럽게 들어감
-        const bottomPad = h * (this.holeBottomPaddingRatio || 0);
+        // 하단 padding 보정 with cap:
+        //   기존: bottomPad = h × ratio → 깊이 깊어질수록 비례 증가
+        //   문제: hole.png ratio가 크면 깊은 곳에서 hole이 지표면 아래로 너무 내려가 어긋남
+        //   해결: cap 10px로 제한 → 깊이 무관하게 작은 보정만 (시각상 거의 안 보이는 수준)
+        const HOLE_BOTTOM_PAD_CAP = 10;
+        const rawPad = h * (this.holeBottomPaddingRatio || 0);
+        const bottomPad = Math.min(rawPad, HOLE_BOTTOM_PAD_CAP);
         this.holeImage.y = holeBottomY + bottomPad;
     }
 
