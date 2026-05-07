@@ -284,13 +284,20 @@ export default class MenuScene extends Phaser.Scene {
         const ratio = char.width / char.height;
         char.setDisplaySize(targetH * ratio, targetH);
         char.setAngle(5);
-        char.setInteractive({ useHandCursor: true });
 
-        // 말풍선 (캐릭터 머리 위)
+        // 말풍선 (캐릭터 머리 위) — 신규/재진입 무관 항상 보임
         const bubbleY = charY - char.displayHeight * 0.55;
         const bubble = this.createSpeechBubble(charX - 20, bubbleY, CHARACTER_TAP_LINES[0]);
         this.menuBubble = bubble;
         this.menuBubbleLineIdx = 0;
+
+        // ━━ 신규 유저: 캐릭터 클릭 비활성화 ━━
+        //   캐릭터(charX=width*0.78, displayHeight=height*0.40)가 큰 시작 버튼(중앙, height*0.62) 영역과
+        //   겹쳐 hit을 가로챌 위험 차단. 신규 유저 첫 진입의 핵심은 시작 버튼이지 캐릭터 라인 순환 X.
+        //   재진입 유저(메인 화면 익숙)만 캐릭터 라인 순환 인터랙션 활성화.
+        if (this.isFirstTime) return;
+
+        char.setInteractive({ useHandCursor: true });
 
         // 터치 핸들러
         char.on('pointerdown', () => {
@@ -406,7 +413,7 @@ export default class MenuScene extends Phaser.Scene {
         const container = this.add.container(x, y).setDepth(20);
         const radius = 18;
         const SHADOW_OFFSET = 8;
-        const HIT_PAD = 18;   // 모바일 손가락 빗나감 보정 (히트영역 ±18px 확장)
+        const HIT_PAD = 30;   // 히트영역 ±30px 확장 (이전 18 → 30, 손가락 빗나감 더 관대)
 
         // 그림자판 (어두운 황토)
         const shadow = this.add.graphics();
@@ -430,15 +437,14 @@ export default class MenuScene extends Phaser.Scene {
             font: 'bold 38px sans-serif', color: '#000000'
         }).setOrigin(0.5);
 
-        // 부제 "(사장님 몰래)" — 작고 살짝 기울임
+        // 부제 "(사장님 몰래)"
         const sub = this.add.text(0, h * 0.20, '(사장님 몰래)', {
             font: 'italic 18px sans-serif', color: '#5a2d0c'
         }).setOrigin(0.5);
 
         container.add([shadow, top, shine, main, sub]);
 
-        // 히트 영역 (히트영역을 시각보다 ±HIT_PAD 확장 — 모바일 손가락 빗나가도 click 인정)
-        //   사용자 피드백: "잘 안눌려져" → 가장자리 약간 빗나간 탭이 무시되던 문제
+        // 히트 영역 (HIT_PAD 30px 확장)
         container.setSize(w + HIT_PAD * 2, h + SHADOW_OFFSET + HIT_PAD * 2);
         container.setInteractive(
             new Phaser.Geom.Rectangle(
@@ -448,32 +454,40 @@ export default class MenuScene extends Phaser.Scene {
             Phaser.Geom.Rectangle.Contains
         );
 
-        // 펄스 (1.05x 숨쉬기) — 사용자 시선 끌기
-        //   핸들 보관: press 동안 pause해야 setScale(0.92) 압축 시각이 트윈에 즉시 덮이지 않음
-        //   (이전엔 트윈이 매 프레임 scale 덮어써서 누름 피드백이 보이지 않음 → "안 눌렸나?" 오인)
+        // 펄스 (1.05x 숨쉬기)
         const pulseTween = this.tweens.add({
             targets: container,
             scale: { from: 1.0, to: 1.05 },
             duration: 650, yoyo: true, repeat: -1, ease: 'Sine.inOut'
         });
 
-        // 클릭 피드백 + 핸들러 (drag-tolerant — 모바일 첫 탭 안정성 보장)
-        this.bindMobileClick(container, () => {
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        // pointerdown 즉시 발동 — bindMobileClick(drag-tolerant) 우회
+        //   왜: 사용자가 "여전히 안 눌려" 보고. 추적된 원인:
+        //     1) bindMobileClick의 dragThreshold 30px이 모바일 손가락 미세 흔들림에 자주 초과
+        //     2) pointerout/pointerupoutside 시퀀스 일부 디바이스에서 누락
+        //     3) 캐릭터(우측, depth 5) hit 영역과 시작 버튼 hit 영역 일부 겹침 → 캐릭터가 가로챌 위험
+        //        (해결: createInteractiveCharacter에서 신규 유저 setInteractive 비활성화)
+        //   시작 버튼은 단순 진입(드래그 의미 X) → pointerdown 즉시 처리가 가장 안정.
+        // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+        let starting = false;
+        container.on('pointerdown', () => {
+            if (starting) return;     // 더블 탭/연타 중복 진입 차단
+            starting = true;
+            pulseTween.pause();
+            container.setScale(0.88);
+            this.spawnButtonRipple(x, y);
             this.tryRequestFullscreen();
             this.scene.start('GameScene');
-        }, {
-            onPress: () => {
-                // 펄스 일시정지 → 0.92 압축이 즉시 보이고 유지됨 (확실한 피드백)
-                pulseTween.pause();
-                container.setScale(0.92);
-                // 황금 ripple — 누른 순간 동심원 확산 (시각 확정 신호)
-                this.spawnButtonRipple(x, y);
-            },
-            onRelease: () => {
-                container.setScale(1);
-                pulseTween.resume();
-            }
         });
+        // 시각 복원 (pointerdown 즉시 scene.start 하지만, 만약 어떤 이유로 scene 전환이 늦으면 복원)
+        const restore = () => {
+            if (starting) return;
+            container.setScale(1);
+        };
+        container.on('pointerup', restore);
+        container.on('pointerout', restore);
+        container.on('pointerupoutside', restore);
 
         return container;
     }
