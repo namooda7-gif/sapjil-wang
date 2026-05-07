@@ -406,6 +406,7 @@ export default class MenuScene extends Phaser.Scene {
         const container = this.add.container(x, y).setDepth(20);
         const radius = 18;
         const SHADOW_OFFSET = 8;
+        const HIT_PAD = 18;   // 모바일 손가락 빗나감 보정 (히트영역 ±18px 확장)
 
         // 그림자판 (어두운 황토)
         const shadow = this.add.graphics();
@@ -436,15 +437,21 @@ export default class MenuScene extends Phaser.Scene {
 
         container.add([shadow, top, shine, main, sub]);
 
-        // 히트 영역
-        container.setSize(w, h + SHADOW_OFFSET);
+        // 히트 영역 (히트영역을 시각보다 ±HIT_PAD 확장 — 모바일 손가락 빗나가도 click 인정)
+        //   사용자 피드백: "잘 안눌려져" → 가장자리 약간 빗나간 탭이 무시되던 문제
+        container.setSize(w + HIT_PAD * 2, h + SHADOW_OFFSET + HIT_PAD * 2);
         container.setInteractive(
-            new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h + SHADOW_OFFSET),
+            new Phaser.Geom.Rectangle(
+                -w / 2 - HIT_PAD, -h / 2 - HIT_PAD,
+                w + HIT_PAD * 2, h + SHADOW_OFFSET + HIT_PAD * 2
+            ),
             Phaser.Geom.Rectangle.Contains
         );
 
         // 펄스 (1.05x 숨쉬기) — 사용자 시선 끌기
-        this.tweens.add({
+        //   핸들 보관: press 동안 pause해야 setScale(0.92) 압축 시각이 트윈에 즉시 덮이지 않음
+        //   (이전엔 트윈이 매 프레임 scale 덮어써서 누름 피드백이 보이지 않음 → "안 눌렸나?" 오인)
+        const pulseTween = this.tweens.add({
             targets: container,
             scale: { from: 1.0, to: 1.05 },
             duration: 650, yoyo: true, repeat: -1, ease: 'Sine.inOut'
@@ -455,11 +462,38 @@ export default class MenuScene extends Phaser.Scene {
             this.tryRequestFullscreen();
             this.scene.start('GameScene');
         }, {
-            onPress:   () => container.setScale(0.95),
-            onRelease: () => container.setScale(1)
+            onPress: () => {
+                // 펄스 일시정지 → 0.92 압축이 즉시 보이고 유지됨 (확실한 피드백)
+                pulseTween.pause();
+                container.setScale(0.92);
+                // 황금 ripple — 누른 순간 동심원 확산 (시각 확정 신호)
+                this.spawnButtonRipple(x, y);
+            },
+            onRelease: () => {
+                container.setScale(1);
+                pulseTween.resume();
+            }
         });
 
         return container;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 시작 버튼 누름 ripple — 황금 동심원이 확산하며 페이드아웃
+    //   "내가 눌렀구나" 시각 확정. 0.4초 안에 사라져 산만하지 않음.
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    spawnButtonRipple(cx, cy) {
+        const ring = this.add.graphics().setDepth(19);
+        ring.lineStyle(5, 0xffd700, 1);
+        ring.strokeCircle(0, 0, 30);
+        ring.setPosition(cx, cy);
+        this.tweens.add({
+            targets: ring,
+            scale: { from: 0.5, to: 2.6 },
+            alpha: { from: 0.9, to: 0 },
+            duration: 420, ease: 'Quad.out',
+            onComplete: () => ring.destroy()
+        });
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

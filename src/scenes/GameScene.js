@@ -1719,35 +1719,123 @@ export default class GameScene extends Phaser.Scene {
         const def = DRINK_TYPES[pickedKey];
 
         const { width } = this.cameras.main;
+
+        // ━━━━ 1단계: 사전 경고 배너 (700ms) ━━━━
+        //   사용자 피드백: 드링크가 너무 빨리 내려와서 인식 못 함
+        //   → 화면 상단에 "🥤 드링크 온다! ↓" 배너 깜빡 → 시선 유도
+        const banner = this.add.container(width / 2, 110).setDepth(48);
+        const bannerW = 280, bannerH = 70;
+        const bannerBg = this.add.graphics();
+        bannerBg.fillStyle(0x000000, 0.85);
+        bannerBg.fillRoundedRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 16);
+        bannerBg.lineStyle(4, def.color, 1);
+        bannerBg.strokeRoundedRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 16);
+        const bannerEmoji = this.add.text(-95, 0, def.emoji, { font: '42px sans-serif' }).setOrigin(0.5);
+        const bannerTxt = this.add.text(20, 0, '드링크 온다!', {
+            font: 'bold 24px sans-serif', color: def.hex,
+            stroke: '#000', strokeThickness: 4
+        }).setOrigin(0.5);
+        const bannerArrow = this.add.text(115, 4, '↓', {
+            font: 'bold 42px sans-serif', color: def.hex,
+            stroke: '#000', strokeThickness: 5
+        }).setOrigin(0.5);
+        banner.add([bannerBg, bannerEmoji, bannerTxt, bannerArrow]);
+        banner.setScale(0.5).setAlpha(0);
+        this.tweens.add({ targets: banner, scale: 1, alpha: 1, duration: 220, ease: 'Back.out' });
+        // 화살표 깜빡깜빡 (방향 안내)
+        this.tweens.add({
+            targets: bannerArrow,
+            y: bannerArrow.y + 8,
+            duration: 200, yoyo: true, repeat: 2, ease: 'Sine.inOut'
+        });
+
+        // ━━━━ 2단계: 700ms 후 배너 정리 + 드링크 등장 ━━━━
+        this.time.delayedCall(700, () => {
+            if (this.clearActive || this.treasurePopupActive || this.burnoutActive) {
+                if (banner && banner.scene) banner.destroy();
+                return;
+            }
+            if (banner && banner.scene) {
+                this.tweens.add({
+                    targets: banner, alpha: 0, y: banner.y - 12,
+                    duration: 240,
+                    onComplete: () => banner.destroy()
+                });
+            }
+            this.launchDrinkFall(pickedKey);
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 드링크 실제 낙하 (사전 배너 후 호출)
+    //   - 크기 확대(54→64px), 글로우 펄스
+    //   - 낙하 1500ms (이전 900ms) + Quad.in (등속 가속)
+    //   - 트레일 잔상 파티클 (등급 색)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    launchDrinkFall(pickedKey) {
+        if (!this.character) return;
+        const def = DRINK_TYPES[pickedKey];
         const startX = this.character.x;
-        const startY = -80;
+        const startY = -90;
         const endX   = this.character.x;
         const endY   = this.character.y - this.character.displayHeight * 0.6;
+        const FALL_MS = 1500;
 
         const container = this.add.container(startX, startY).setDepth(46);
 
-        // 글로우 배경 원 (등급 색)
-        const glow = this.add.circle(0, 0, 50, def.color, 0.45).setStrokeStyle(4, def.color, 0.9);
-        const emoji = this.add.text(0, -4, def.emoji, { font: '54px sans-serif' }).setOrigin(0.5);
-        const nameTxt = this.add.text(0, 42, def.name, {
-            font: 'bold 20px sans-serif', color: def.hex,
+        // 글로우 배경 원 (등급 색) — 크기 50→60, 진하기 0.45→0.55
+        const glow = this.add.circle(0, 0, 60, def.color, 0.55).setStrokeStyle(5, def.color, 1);
+        const emoji = this.add.text(0, -4, def.emoji, { font: '64px sans-serif' }).setOrigin(0.5);
+        const nameTxt = this.add.text(0, 50, def.name, {
+            font: 'bold 22px sans-serif', color: def.hex,
             stroke: '#000', strokeThickness: 4
         }).setOrigin(0.5);
         container.add([glow, emoji, nameTxt]);
 
-        // 약하게 회전하면서 포물선으로 머리 위까지 내려옴
+        // glow 펄스 (낙하 동안 계속 깜빡 → 시선 끌기)
+        const glowPulse = this.tweens.add({
+            targets: glow,
+            scale: { from: 1.0, to: 1.3 },
+            alpha: { from: 0.55, to: 0.9 },
+            duration: 380, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+        });
+
+        // 트레일 잔상 텍스처 (없으면 즉석 생성)
+        if (!this.textures.exists('__drinkTrail')) {
+            const tg = this.make.graphics({ x: 0, y: 0, add: false });
+            tg.fillStyle(0xffffff, 1);
+            tg.fillCircle(7, 7, 7);
+            tg.generateTexture('__drinkTrail', 14, 14);
+            tg.destroy();
+        }
+        const trail = this.add.particles(0, 0, '__drinkTrail', {
+            follow: container,
+            tint: def.color,
+            lifespan: 480,
+            scale: { start: 1.5, end: 0.2 },
+            alpha: { start: 0.7, end: 0 },
+            frequency: 30,
+            quantity: 1
+        }).setDepth(45);
+
+        // 낙하 (1500ms, Quad.in = 부드러운 가속)
         this.tweens.add({
             targets: container,
             x: endX, y: endY,
-            duration: 900, ease: 'Cubic.in'
+            duration: FALL_MS, ease: 'Quad.in'
         });
         this.tweens.add({
             targets: container,
-            angle: 360, duration: 900, ease: 'Linear'
+            angle: 540, duration: FALL_MS, ease: 'Linear'
         });
 
-        // 도착 시 캐치 처리
-        this.time.delayedCall(900, () => this.catchDrink(pickedKey, container));
+        // 도착 시 캐치 + 트레일 정리
+        this.time.delayedCall(FALL_MS, () => {
+            if (glowPulse) glowPulse.stop();
+            if (trail && trail.stop) trail.stop();
+            this.time.delayedCall(550, () => { if (trail && trail.scene) trail.destroy(); });
+            this.catchDrink(pickedKey, container);
+        });
     }
 
     catchDrink(key, container) {
@@ -1884,6 +1972,38 @@ export default class GameScene extends Phaser.Scene {
         const def = WEATHER_TYPES[key];
         if (!def) return;
         const { width, height } = this.cameras.main;
+
+        // ━━━━ 사전 인지 강화 — 카메라 flash + 큰 배너 1.2초 ━━━━
+        //   사용자 피드백: 날씨 시작이 인식 안 됨 (파티클이 갑자기 떨어져도 못 알아챔)
+        //   → 화면 전체 한 번 flash + 중앙 큰 배너로 "비바람!/눈보라!/태풍!" 명확 안내
+        this.cameras.main.flash(240, 200, 200, 220);
+        const weatherEmoji = key === 'rain'  ? '🌧️'
+                           : key === 'snow'  ? '❄️'
+                           : '🌪️';
+        const banner = this.add.container(width / 2, height * 0.32).setDepth(60);
+        const bannerW = 380, bannerH = 110;
+        const bannerBg = this.add.graphics();
+        bannerBg.fillStyle(0x000000, 0.85);
+        bannerBg.fillRoundedRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 20);
+        bannerBg.lineStyle(5, def.particleColor, 1);
+        bannerBg.strokeRoundedRect(-bannerW / 2, -bannerH / 2, bannerW, bannerH, 20);
+        const bannerEmoji = this.add.text(-115, 0, weatherEmoji, { font: '64px sans-serif' }).setOrigin(0.5);
+        const bannerTxt = this.add.text(45, 0, def.name + '!', {
+            font: 'bold 42px sans-serif', color: '#ffffff',
+            stroke: '#000', strokeThickness: 6
+        }).setOrigin(0.5);
+        banner.add([bannerBg, bannerEmoji, bannerTxt]);
+        banner.setScale(0.4).setAlpha(0);
+        this.tweens.add({ targets: banner, scale: 1, alpha: 1, duration: 280, ease: 'Back.out' });
+        this.time.delayedCall(1000, () => {
+            if (banner && banner.scene) {
+                this.tweens.add({
+                    targets: banner, scale: 1.25, alpha: 0,
+                    duration: 380,
+                    onComplete: () => banner.destroy()
+                });
+            }
+        });
 
         // 파티클용 흰 점 텍스처 (없으면 즉석 생성)
         if (!this.textures.exists('__weatherDot')) {
