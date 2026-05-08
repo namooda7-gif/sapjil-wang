@@ -1225,48 +1225,98 @@ export default class GameScene extends Phaser.Scene {
             this.comicBubble = null;
         }
 
-        const { width } = this.cameras.main;
-        const bubble = this.add.container(width / 2, this.cameras.main.height * 0.18);
+        // ━━ 화면 하단 만화 말풍선 ━━
+        // 위치: height * 0.78 = 캐릭터(y=858) 아래 + 하단 HUD(y=height-100) 위 안전 영역
+        // 디자인: 둥근 모서리 + 두꺼운 검정 외곽선 + 드롭 섀도우 + 위로 향하는 꼬리
+        //         + 살짝 기울임 + 등장 바운스 → 만화 톤 (사용자 피드백: 그냥 사각박스 → 재미)
+        const { width, height } = this.cameras.main;
+        const bubble = this.add.container(width / 2, height * 0.78).setDepth(50);
 
-        // 말풍선 배경
-        const bubbleBg = this.add.rectangle(0, 0, width * 0.88, 150, 0xffffff, 0.97)
-            .setStrokeStyle(5, 0x5a2d0c);
+        // 말풍선 사이즈 (좌우 마진 충분히)
+        const bw = Math.min(width * 0.86, 620);
+        const bh = 140;
+        const radius = 32;
 
-        // 말풍선 꼬리 (아래 방향)
-        const tail = this.add.triangle(0, 80, -20, 0, 20, 0, 0, 30, 0xffffff)
-            .setStrokeStyle(5, 0x5a2d0c);
+        // 드롭 섀도우 (검정 반투명, 살짝 우하단 어긋나게)
+        const shadow = this.add.graphics();
+        shadow.fillStyle(0x000000, 0.35);
+        shadow.fillRoundedRect(-bw / 2 + 7, -bh / 2 + 8, bw, bh, radius);
 
-        // NPC 이름 라인
-        const npcLine = this.add.text(0, -45, `${event.emoji || '👤'} ${event.npc}`, {
-            font: 'bold 24px sans-serif',
-            color: '#5a2d0c'
+        // 메인 말풍선 본체 (크림색 + 두꺼운 검정 외곽 6px)
+        const bg = this.add.graphics();
+        bg.fillStyle(0xfff8e0, 1);
+        bg.fillRoundedRect(-bw / 2, -bh / 2, bw, bh, radius);
+        bg.lineStyle(6, 0x000000, 1);
+        bg.strokeRoundedRect(-bw / 2, -bh / 2, bw, bh, radius);
+
+        // 위쪽 꼬리 (말풍선이 하단이라 꼬리는 위로 → 화면 위 캐릭터 방향)
+        // 좌측으로 살짝 치우쳐서 더 만화 같은 느낌
+        const tail = this.add.graphics();
+        tail.fillStyle(0xfff8e0, 1);
+        tail.lineStyle(6, 0x000000, 1);
+        tail.beginPath();
+        tail.moveTo(-30, -bh / 2 + 2);
+        tail.lineTo(-5, -bh / 2 - 32);
+        tail.lineTo(20, -bh / 2 + 2);
+        tail.closePath();
+        tail.fillPath();
+        tail.strokePath();
+        // 꼬리 안쪽 외곽선 가림 (말풍선과 꼬리 경계의 검정 라인 제거 — 안 그러면 가로 줄 보임)
+        const tailMask = this.add.graphics();
+        tailMask.fillStyle(0xfff8e0, 1);
+        tailMask.fillRect(-30 + 3, -bh / 2 - 1, 50 - 6, 4);
+
+        // NPC 이름 + 이모지 (상단 빨간 강조 — 만화 톤)
+        const npcLine = this.add.text(0, -bh / 2 + 28, `${event.emoji || '👤'} ${event.npc}`, {
+            font: 'bold italic 22px sans-serif',
+            color: '#c8102e'
         }).setOrigin(0.5);
 
-        // 메시지
-        const msg = this.add.text(0, 5, event.message, {
-            font: 'bold 26px sans-serif',
+        // 메시지 (굵은 검정, 한 줄 큰 글씨)
+        const msg = this.add.text(0, 16, event.message, {
+            font: 'bold 30px sans-serif',
             color: '#000',
-            wordWrap: { width: width * 0.8 },
+            wordWrap: { width: bw - 40 },
             align: 'center'
         }).setOrigin(0.5);
 
-        bubble.add([bubbleBg, tail, npcLine, msg]);
-        bubble.setDepth(50);
+        bubble.add([shadow, bg, tail, tailMask, npcLine, msg]);
+
+        // 살짝 비뚤어짐 (만화 액션감)
+        bubble.setRotation(-0.045);   // 약 -2.6°
+
         this.comicBubble = bubble;
 
-        // 등장 애니
+        // 등장: 펑! 튀어나오기 (스케일 + 회전 정착)
         bubble.setScale(0);
         this.tweens.add({
-            targets: bubble, scale: 1, duration: 250, ease: 'Back.out'
+            targets: bubble,
+            scale: 1,
+            duration: 350,
+            ease: 'Back.out'
+        });
+        // 등장 직후 살짝 흔들림 (1회만, 0.4초)
+        this.tweens.add({
+            targets: bubble,
+            rotation: { from: -0.045, to: -0.025 },
+            yoyo: true,
+            repeat: 1,
+            duration: 200,
+            delay: 350,
+            ease: 'Sine.inOut'
         });
 
-        // 3초 후 자동 사라짐
+        // 자동 사라짐 (펑 회전하며 축소)
         this.time.delayedCall(event.duration || 3000, () => {
             if (bubble.active) {
+                this.tweens.killTweensOf(bubble);
                 this.tweens.add({
                     targets: bubble,
-                    alpha: 0, scale: 0.85,
-                    duration: 300,
+                    alpha: 0,
+                    scale: 0.7,
+                    rotation: 0.18,
+                    duration: 320,
+                    ease: 'Quad.in',
                     onComplete: () => {
                         if (bubble.active) bubble.destroy();
                         if (this.comicBubble === bubble) this.comicBubble = null;
