@@ -251,6 +251,28 @@ const DRINK_BONUS = {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// SAPREME® LIMITED DROP — 스윗스팟 정조준 보너스 (Supreme 패러디)
+//   화면 가운데 영역에 빨간 박스 로고 + 골드삽 아이콘이 둥실 떠다니다
+//   "정확히" 탭하면 ×2 코인 + 콤보 +5 보너스. 빗나가도 일반 dig는 정상 작동.
+//   - 글로벌 출시: 철자 변경(SUPREME→SAPREME)으로 상표 회피, 박스 로고 미감만 차용
+//   - 캐주얼 톤 유지: 페널티 없음. 정조준은 "추가 보상" 개념 (놓쳐도 손해 X)
+//   - 첫 레이어에서 보장 1회 등장 → 시스템 인지 + 그 후 25탭마다 25% 굴림
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const SAPREME_SPAWN_INTERVAL      = 25;        // 매 N탭마다 굴림
+const SAPREME_SPAWN_CHANCE        = 0.25;      // 25% 등장 확률
+const SAPREME_FIRST_GUARANTEED_AT = 15;        // 매 레이어 진입 후 이 탭에 무조건 1회
+const SAPREME_LIFETIME_MS         = 5000;      // 5초 머무르고 자동 페이드아웃
+const SAPREME_HIT_RADIUS          = 75;        // 정조준 히트 반경 (px) — 박스 + 살짝 패딩
+const SAPREME_BONUS_COIN_MULT     = 2.0;       // 명중 시 그 탭 코인 ×2
+const SAPREME_BONUS_COMBO_ADD     = 5;         // 명중 시 콤보 +5
+const SAPREME_REACTION_LINES = [
+    '헐 한정판이다!',
+    'SAPREME 드롭 떴다!',
+    '리셀가 얼만데!',
+    '오늘의 픽업!'
+];
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 기상 악화 (실외 레이어 한정 코스메틱)
 //   40탭마다 8% 굴림 + 한 번 발동하면 12초 지속
 //   페널티 X (모바일 캐주얼 짜증 회피) — 시각/사운드/독백만
@@ -387,6 +409,12 @@ export default class GameScene extends Phaser.Scene {
         // ━━ 보물 강화 ━━
         this.foreshadowGfx = null;            // 발견 직전 황금빛 반짝 graphics
         this.foreshadowTween = null;
+
+        // ━━ SAPREME 스윗스팟 ━━
+        // sapremeBox = { container, glow, radius, expiresAt } 또는 null
+        this.tapsSinceLastSapremeCheck = 0;
+        this.firstSapremeEverSpawned = false;
+        this.sapremeBox = null;
     }
 
     create() {
@@ -761,9 +789,16 @@ export default class GameScene extends Phaser.Scene {
         this.foreshadowCooldown = 0;    // foreshadow 쿨다운도 리셋
         this.tapsSinceLastDrinkCheck = 0;
         this.tapsSinceLastWeatherCheck = 0;
-        // 매 레이어 진입마다 첫 드링크/기상 보장 → 모든 레이어에서 시스템 인지 + 자주 노출
+        this.tapsSinceLastSapremeCheck = 0;
+        // 매 레이어 진입마다 첫 드링크/기상/SAPREME 보장 → 모든 레이어에서 시스템 인지 + 자주 노출
         this.firstDrinkEverSpawned = false;
         this.firstWeatherEverSpawned = false;
+        this.firstSapremeEverSpawned = false;
+        // 진행 중이던 SAPREME 박스가 있으면 즉시 정리 (다음 레이어로 이월 X)
+        if (this.sapremeBox) {
+            if (this.sapremeBox.container) this.sapremeBox.container.destroy();
+            this.sapremeBox = null;
+        }
         this.combo = 0;
         this.firedComicTriggers.clear();
 
@@ -873,6 +908,15 @@ export default class GameScene extends Phaser.Scene {
         // ━━ 번아웃 중이면 dig 차단 (5초 자동 정지) ━━
         if (this.burnoutActive) return;
 
+        // ━━ SAPREME 정조준 명중 체크 (장애물보다 먼저, 보너스 플래그만 세움) ━━
+        // 박스 안에 떨어진 탭은 일반 dig + 보너스(코인×2, 콤보+5) 둘 다 적용
+        // 빗나가도 정상 dig 진행 → 캐주얼 톤 유지
+        let sapremeHit = false;
+        if (this.sapremeBox && this._isInSapreme(x, y)) {
+            sapremeHit = true;
+            this._consumeSapreme();
+        }
+
         // ━━ 장애물 활성 중이면 → 일반 dig 대신 장애물에 탭 카운트 ━━
         if (this.currentObstacle) {
             this.hitObstacle(x, y);
@@ -891,6 +935,8 @@ export default class GameScene extends Phaser.Scene {
             this.combo = 1;
             this.firedComboMonologues.clear();   // 콤보 끊기면 콤보 라인 다시 노출 가능
         }
+        // SAPREME 명중 시 콤보 +5 추가 부스트 (정상 콤보 +1 위에 누적)
+        if (sapremeHit) this.combo += SAPREME_BONUS_COMBO_ADD;
         this.lastDigTime = now;
 
         // ━━ 진행 카운트 멀티플라이어 (사용자 스펙) ━━
@@ -1002,6 +1048,8 @@ export default class GameScene extends Phaser.Scene {
         if (this.soulGauge < 10) coinGain = Math.max(1, Math.floor(coinGain * SOUL_BURNOUT_EFFICIENCY));
         // 삽카스 버프 활성 시 코인 +20%
         if (this.activeBuffs.coin > now) coinGain = Math.floor(coinGain * DRINK_BONUS.coin);
+        // SAPREME 정조준 보너스: 이번 탭 코인 ×2 (다른 모든 보너스 곱 후 마지막 적용)
+        if (sapremeHit) coinGain = Math.floor(coinGain * SAPREME_BONUS_COIN_MULT);
         this.currencyManager.addCoin(coinGain);
         // 코인 획득 사운드 (매 탭마다 살짝 다른 피치)
         this.soundManager.playCoinSound();
@@ -1079,6 +1127,19 @@ export default class GameScene extends Phaser.Scene {
         } else if (this.tapsSinceLastWeatherCheck >= WEATHER_INTERVAL) {
             this.tapsSinceLastWeatherCheck = 0;
             if (Math.random() < WEATHER_CHANCE) this.maybeStartWeather();
+        }
+
+        // ━━ SAPREME 스윗스팟 등장 굴림 ━━
+        // 첫 레이어에서 보장 1회 → 시스템 인지. 그 후 25탭마다 25% 확률
+        // 이미 박스가 떠 있으면 spawnSapreme이 내부에서 자동 차단
+        this.tapsSinceLastSapremeCheck += 1;
+        if (!this.firstSapremeEverSpawned && this.digCount >= SAPREME_FIRST_GUARANTEED_AT) {
+            this.firstSapremeEverSpawned = true;
+            this.tapsSinceLastSapremeCheck = 0;
+            this.spawnSapreme();
+        } else if (this.tapsSinceLastSapremeCheck >= SAPREME_SPAWN_INTERVAL) {
+            this.tapsSinceLastSapremeCheck = 0;
+            if (Math.random() < SAPREME_SPAWN_CHANCE) this.spawnSapreme();
         }
 
         // ━━ SOUL 게이지 감소 (탭당 -0.5%) ━━
@@ -1701,6 +1762,140 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // SAPREME® LIMITED DROP — 스윗스팟 정조준 보너스
+    //   빨간 박스(SAPREME® 로고) + 골드삽 아이콘이 화면 가운데 영역에 둥실
+    //   히트 반경(SAPREME_HIT_RADIUS) 안에 정확히 탭 → 코인 ×2 + 콤보 +5
+    //   빗나가도 일반 dig는 정상 (캐주얼 톤 유지). 5초 후 자동 페이드아웃.
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    spawnSapreme() {
+        // 이미 활성 중이거나 차단 상태면 스킵 (중복 박스 방지)
+        if (this.sapremeBox) return;
+        if (this.clearActive || this.treasurePopupActive || this.burnoutActive) return;
+
+        const { width, height } = this.cameras.main;
+
+        // 등장 위치: 화면 가운데 영역(좌우 25~75%, 상하 30~55%)
+        // 캐릭터(y=858)와 HUD(상단 ~140, 하단 ~height-100) 둘 다 회피하면서 정조준 가능 영역
+        const startX = Phaser.Math.Between(Math.floor(width * 0.25), Math.floor(width * 0.75));
+        const startY = Phaser.Math.Between(Math.floor(height * 0.30), Math.floor(height * 0.55));
+
+        const c = this.add.container(startX, startY).setDepth(15);
+
+        // 외곽 황금 글로우 (펄스용 - 가장 뒤)
+        const glow = this.add.circle(0, 0, 70, 0xffd700, 0.35);
+
+        // Supreme 미감 패러디 - 빨간 박스 로고 (상단)
+        const box = this.add.rectangle(0, -42, 110, 30, 0xc8102e)
+            .setStrokeStyle(2, 0x000000, 0.85);
+        const brandText = this.add.text(0, -42, 'SAPREME®', {
+            font: 'italic bold 18px serif',
+            color: '#ffffff'
+        }).setOrigin(0.5);
+
+        // 골드삽 아이콘 (중앙) - 살짝 큰 픽토그램, 골드 외곽선
+        const shovel = this.add.text(0, 5, '⛏️', {
+            font: '56px sans-serif',
+            stroke: '#ffd700',
+            strokeThickness: 3
+        }).setOrigin(0.5);
+
+        // LIMITED DROP 라벨 (하단)
+        const limitedText = this.add.text(0, 48, 'LIMITED DROP', {
+            font: 'bold 13px sans-serif',
+            color: '#ffd700',
+            stroke: '#000', strokeThickness: 2
+        }).setOrigin(0.5);
+
+        c.add([glow, box, brandText, shovel, limitedText]);
+
+        // 글로우 펄스 (scale + alpha yoyo) → "한정판 두근두근" 어필
+        this.tweens.add({
+            targets: glow,
+            scale: { from: 0.85, to: 1.20 },
+            alpha: { from: 0.55, to: 0.20 },
+            yoyo: true, repeat: -1,
+            duration: 600, ease: 'Sine.inOut'
+        });
+
+        // 컨테이너 자체 둥실둥실 (yoyo Y) → 살짝 움직이는 타깃
+        this.tweens.add({
+            targets: c,
+            y: c.y - 18,
+            yoyo: true, repeat: -1,
+            duration: 1300, ease: 'Sine.inOut'
+        });
+
+        // 등장 펑 (scale 0 → 1 백 이즈)
+        c.setScale(0);
+        this.tweens.add({
+            targets: c, scale: 1, duration: 280, ease: 'Back.out'
+        });
+
+        // 등장 사운드 (콤보 10 효과음 재활용 - 짧은 ding)
+        if (this.soundManager && this.soundManager.playComboSound) {
+            this.soundManager.playComboSound(10);
+        }
+
+        this.sapremeBox = {
+            container: c,
+            glow,
+            radius: SAPREME_HIT_RADIUS,
+            expiresAt: this.time.now + SAPREME_LIFETIME_MS
+        };
+    }
+
+    // 탭 좌표(x, y)가 SAPREME 박스 히트 반경 안에 있는지
+    _isInSapreme(x, y) {
+        if (!this.sapremeBox || !this.sapremeBox.container) return false;
+        const c = this.sapremeBox.container;
+        const dx = x - c.x;
+        const dy = y - c.y;
+        const r = this.sapremeBox.radius;
+        return (dx * dx + dy * dy) <= (r * r);
+    }
+
+    // SAPREME 명중 → 보너스 효과 + 박스 펑 사라짐 (보너스 수치 자체는 dig()에서 적용)
+    _consumeSapreme() {
+        if (!this.sapremeBox) return;
+        const ref = this.sapremeBox;
+        const c = ref.container;
+        // 즉시 sapremeBox 클리어 → 같은 탭에 두 번 적중 방지 + update()의 만료 체크와 충돌 방지
+        this.sapremeBox = null;
+
+        if (c) {
+            // 펑! 사라지는 연출 (스케일 업 + 페이드)
+            this.tweens.killTweensOf(c);
+            if (ref.glow) this.tweens.killTweensOf(ref.glow);
+            this.tweens.add({
+                targets: c,
+                scale: 1.7,
+                alpha: 0,
+                duration: 220,
+                ease: 'Quad.out',
+                onComplete: () => c.destroy()
+            });
+            // 보너스 텍스트 (박스 위치에서 솟구침)
+            this.showFloatingText(c.x, c.y - 30, '🔥 SAPREME ×2!', '#ffd700');
+        }
+
+        // 캐릭터 코믹 반응 (말풍선)
+        const line = SAPREME_REACTION_LINES[
+            Math.floor(Math.random() * SAPREME_REACTION_LINES.length)
+        ];
+        this.showCharacterMonologue(line);
+
+        // 햅틱 + 전설 보물용 강한 사운드 재활용 (dopamine 한 방)
+        if (this.soundManager) {
+            if (this.soundManager.triggerHaptic) {
+                this.soundManager.triggerHaptic('heavy');
+            }
+            if (this.soundManager.playTreasureSound) {
+                this.soundManager.playTreasureSound('rare');
+            }
+        }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 에너지 드링크 (패러디 — 삽카스/핫삽스/레드삽/에너자삽)
     //   화면 위에서 캐릭터로 떨어짐 → 자동 캐치 → 일정 시간 버프
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -2005,7 +2200,10 @@ export default class GameScene extends Phaser.Scene {
             }
         });
 
-        // 파티클용 흰 점 텍스처 (없으면 즉석 생성)
+        // ━━ 파티클 텍스처 3종 (사장님 피드백: "비바람 막 몰아쳐야") ━━
+        // __weatherDot:    3×3 흰 점 — 작은 입자 (typhoon, 눈보라 잔눈)
+        // __weatherStreak: 2×22 길쭉한 비줄 — rain용. rotate로 바람 각도 표현
+        // __weatherFlake:  6×6 통통한 눈송이 — snow용. 큼직해야 휘몰아치는 게 보임
         if (!this.textures.exists('__weatherDot')) {
             const wg = this.make.graphics({ x: 0, y: 0, add: false });
             wg.fillStyle(0xffffff, 1);
@@ -2013,27 +2211,62 @@ export default class GameScene extends Phaser.Scene {
             wg.generateTexture('__weatherDot', 3, 3);
             wg.destroy();
         }
+        if (!this.textures.exists('__weatherStreak')) {
+            const sg = this.make.graphics({ x: 0, y: 0, add: false });
+            sg.fillStyle(0xffffff, 1);
+            sg.fillRect(0, 0, 2, 22);                      // 길쭉한 비줄
+            sg.generateTexture('__weatherStreak', 2, 22);
+            sg.destroy();
+        }
+        if (!this.textures.exists('__weatherFlake')) {
+            const fg = this.make.graphics({ x: 0, y: 0, add: false });
+            fg.fillStyle(0xffffff, 1);
+            fg.fillCircle(3, 3, 3);                        // 둥근 눈송이
+            fg.generateTexture('__weatherFlake', 6, 6);
+            fg.destroy();
+        }
 
-        // tint 오버레이 (반투명 사각형)
+        // tint 오버레이 (반투명 사각형) — 폭풍감 위해 alpha 1.4배로 살짝 더 진하게
         const tintRect = this.add.rectangle(width / 2, height / 2, width, height, def.tint, 0)
             .setDepth(18);
-        this.tweens.add({ targets: tintRect, alpha: def.tintAlpha, duration: 800 });
+        const finalTintAlpha = Math.min(0.55, def.tintAlpha * 1.4);
+        this.tweens.add({ targets: tintRect, alpha: finalTintAlpha, duration: 800 });
 
-        // 파티클 설정 (종류별 차등)
-        let cfg;
+        // ━━ 파티클 설정 (종류별 — 사장님 피드백 반영해 전부 강화) ━━
+        // rain: 강한 좌측 바람 + 길쭉한 비줄, 밀도 3배
+        // snow: 양방향 휘몰아침 + 큼직한 눈송이, 밀도 4배 + 주기적 돌풍
+        // typhoon: 기존 강풍 유지 (이미 강함)
+        let cfg, textureKey = '__weatherDot';
         if (key === 'rain') {
+            textureKey = '__weatherStreak';
             cfg = {
-                x: { min: 0, max: width }, y: -20,
-                speedY: { min: 700, max: 1100 }, speedX: { min: -40, max: -10 },
-                lifespan: 1500, scale: { start: 1.6, end: 1.0 }, alpha: { start: 0.7, end: 0.4 },
-                quantity: 4, frequency: 30, tint: def.particleColor
+                x: { min: -100, max: width + 100 }, y: -40,
+                // 좌측으로 강하게 몰아침 (이전 -40 → -350) + 더 빠른 낙하
+                speedY: { min: 1400, max: 1900 },
+                speedX: { min: -380, max: -240 },
+                lifespan: 1000,
+                scale: { start: 2.4, end: 1.8 },
+                alpha: { start: 0.85, end: 0.55 },
+                // quantity 4→9, frequency 30→18 → 밀도 3.3배 다운푸어
+                quantity: 9, frequency: 18,
+                tint: def.particleColor,
+                // 비줄을 바람 방향으로 기울임 (좌측 바람 → 시계 반대 -14°)
+                rotate: { min: -18, max: -10 }
             };
         } else if (key === 'snow') {
+            textureKey = '__weatherFlake';
             cfg = {
-                x: { min: 0, max: width }, y: -20,
-                speedY: { min: 80, max: 220 }, speedX: { min: -60, max: 60 },
-                lifespan: 6000, scale: { start: 1.4, end: 1.0 }, alpha: { start: 0.95, end: 0.6 },
-                quantity: 3, frequency: 70, tint: def.particleColor,
+                x: { min: -80, max: width + 80 }, y: -40,
+                // 양방향 휘몰아침 (이전 ±60 → ±320) + 낙하속도 2배
+                speedY: { min: 200, max: 520 },
+                speedX: { min: -320, max: 320 },
+                lifespan: 4500,
+                // 눈송이 크기 차등 (큰 송이~작은 송이 섞여 입체감)
+                scale: { start: 2.6, end: 1.2 },
+                alpha: { start: 0.95, end: 0.55 },
+                // quantity 3→8, frequency 70→32 → 밀도 약 5배
+                quantity: 8, frequency: 32,
+                tint: def.particleColor,
                 rotate: { min: 0, max: 360 }
             };
         } else { // typhoon
@@ -2044,15 +2277,87 @@ export default class GameScene extends Phaser.Scene {
                 quantity: 6, frequency: 25, tint: def.particleColor
             };
         }
-        const particles = this.add.particles(0, 0, '__weatherDot', cfg).setDepth(19);
+        const particles = this.add.particles(0, 0, textureKey, cfg).setDepth(19);
+
+        // ━━ 보조 emitter: 비는 잔비(작은 dot), 눈은 눈가루(작은 dot) — 깊이감 부여 ━━
+        let particlesFine = null;
+        if (key === 'rain') {
+            // 작은 빗방울 안개 — 더 빠르고 덜 보이는 잔비
+            particlesFine = this.add.particles(0, 0, '__weatherDot', {
+                x: { min: 0, max: width }, y: -20,
+                speedY: { min: 1100, max: 1600 },
+                speedX: { min: -420, max: -300 },
+                lifespan: 900,
+                scale: { start: 1.4, end: 1.0 },
+                alpha: { start: 0.5, end: 0.25 },
+                quantity: 5, frequency: 22,
+                tint: def.particleColor
+            }).setDepth(19);
+        } else if (key === 'snow') {
+            // 잔눈가루 — 작고 빨리 휘날리는 백그라운드 레이어
+            particlesFine = this.add.particles(0, 0, '__weatherDot', {
+                x: { min: -50, max: width + 50 }, y: -20,
+                speedY: { min: 280, max: 600 },
+                speedX: { min: -480, max: 480 },
+                lifespan: 3500,
+                scale: { start: 1.4, end: 0.8 },
+                alpha: { start: 0.7, end: 0.3 },
+                quantity: 6, frequency: 28,
+                tint: def.particleColor
+            }).setDepth(18);
+        }
 
         // 사운드 + 독백
         this.soundManager.playWeatherSound(key);
         if (!this.characterBubble) this.showCharacterMonologue(def.line);
-        if (key === 'typhoon') this.cameras.main.shake(WEATHER_DURATION, 0.0008);
+
+        // ━━ 카메라 셰이크 — 폭풍감을 몸으로 느끼게 (캐주얼 페널티 X, 시각만) ━━
+        if (key === 'typhoon')   this.cameras.main.shake(WEATHER_DURATION, 0.0008);
+        else if (key === 'rain') this.cameras.main.shake(WEATHER_DURATION, 0.0004);    // 비바람 살짝 흔들림
+        else if (key === 'snow') this.cameras.main.shake(WEATHER_DURATION, 0.0003);    // 눈보라 더 약하게
+
+        // ━━ 비바람 한정: 번개 플래시 (2~4초마다 흰 섬광) ━━
+        // 카메라 flash + 짧은 thunder 효과 (memory의 코스메틱 페널티 룰 충족)
+        let lightningTimer = null;
+        if (key === 'rain') {
+            const fireLightning = () => {
+                if (!this.weatherActive) return;
+                this.cameras.main.flash(180, 220, 220, 255, false);
+                // 다음 번개 예약 (2.0~4.0초 랜덤)
+                lightningTimer = this.time.delayedCall(
+                    Phaser.Math.Between(2000, 4000), fireLightning
+                );
+            };
+            // 첫 번개는 0.8~1.5초 후
+            lightningTimer = this.time.delayedCall(
+                Phaser.Math.Between(800, 1500), fireLightning
+            );
+        }
+
+        // ━━ 눈보라 한정: 주기적 돌풍 (1.8초마다 speedX 방향 반전 + 부스트) ━━
+        // 시각적으로 "휘몰아치는" 느낌 — 항상 한쪽으로만 날리지 않게
+        let gustTimer = null;
+        if (key === 'snow') {
+            let gustDir = 1;     // +1 = 우측 강풍, -1 = 좌측 강풍
+            const fireGust = () => {
+                if (!this.weatherActive || !particles) return;
+                gustDir *= -1;
+                const base = 380 * gustDir;
+                // 메인 + 보조 emitter 모두 speedX 갱신
+                if (particles.setEmitterAngle) {
+                    // Phaser 3.60+: ParticleEmitter 직접 메서드
+                    particles.speedX = { min: base - 80, max: base + 80 };
+                }
+                if (particlesFine && particlesFine.speedX) {
+                    particlesFine.speedX = { min: base - 150, max: base + 150 };
+                }
+                gustTimer = this.time.delayedCall(1800, fireGust);
+            };
+            gustTimer = this.time.delayedCall(1800, fireGust);
+        }
 
         const endsAt = this.time.now + WEATHER_DURATION;
-        this.weatherActive = { key, particles, tintRect, endsAt };
+        this.weatherActive = { key, particles, particlesFine, tintRect, endsAt, lightningTimer, gustTimer };
 
         // 종료 타이머
         this.time.delayedCall(WEATHER_DURATION, () => this.endWeather());
@@ -2060,13 +2365,17 @@ export default class GameScene extends Phaser.Scene {
 
     endWeather() {
         if (!this.weatherActive) return;
-        const { particles, tintRect } = this.weatherActive;
+        const { particles, particlesFine, tintRect, lightningTimer, gustTimer } = this.weatherActive;
+
+        // 번개/돌풍 타이머 즉시 해제 (재예약 차단)
+        if (lightningTimer && lightningTimer.remove) lightningTimer.remove(false);
+        if (gustTimer && gustTimer.remove)           gustTimer.remove(false);
 
         // 파티클 emission 중단 (잔여 입자는 자연스럽게 떨어지며 사라짐)
         // Phaser 3.60+에서 add.particles는 ParticleEmitter 직접 반환 → .stop() 호출
-        if (particles && particles.stop) {
-            particles.stop();
-        }
+        if (particles && particles.stop)         particles.stop();
+        if (particlesFine && particlesFine.stop) particlesFine.stop();
+
         // tint 페이드아웃
         if (tintRect) {
             this.tweens.add({
@@ -2078,7 +2387,8 @@ export default class GameScene extends Phaser.Scene {
         }
         // 파티클 객체는 1.5초 후 정리 (잔여 입자 lifespan 만료까지 여유)
         this.time.delayedCall(1500, () => {
-            if (particles && particles.scene) particles.destroy();
+            if (particles && particles.scene)         particles.destroy();
+            if (particlesFine && particlesFine.scene) particlesFine.destroy();
         });
         this.weatherActive = null;
     }
@@ -2580,6 +2890,25 @@ export default class GameScene extends Phaser.Scene {
         // ━━ 번아웃 종료 체크 (5초 후 자동 회복) ━━
         if (this.burnoutActive && time >= this.burnoutEndTime) {
             this.endBurnout();
+        }
+
+        // ━━ SAPREME 박스 만료 → 페이드아웃 (탭으로 명중되면 _consumeSapreme이 먼저 sapremeBox 클리어) ━━
+        if (this.sapremeBox && time >= this.sapremeBox.expiresAt) {
+            const c = this.sapremeBox.container;
+            const glow = this.sapremeBox.glow;
+            this.sapremeBox = null;
+            if (c) {
+                this.tweens.killTweensOf(c);
+                if (glow) this.tweens.killTweensOf(glow);
+                this.tweens.add({
+                    targets: c,
+                    alpha: 0,
+                    scale: 0.6,
+                    duration: 320,
+                    ease: 'Quad.in',
+                    onComplete: () => c.destroy()
+                });
+            }
         }
 
         // ━━ 베이스 캐릭터 텍스처 자동 갱신 ━━
