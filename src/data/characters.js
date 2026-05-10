@@ -3,12 +3,13 @@
 
 export const CHARACTERS = [
     // ━━━━━━━ 기본 캐릭터 (무료 6종) ━━━━━━━
-    { id: 'char_001', name: '박삽돌',   rarity: 1, price: { type: 'free' },               bonus: {},                      desc: '기본 (튜토리얼)' },
-    { id: 'char_002', name: '굴착용',   rarity: 1, price: { type: 'coin', amount: 500 },  bonus: { dig_speed: 0.05 },     desc: '알바생 - 삽질속도 +5%' },
-    { id: 'char_003', name: '김파순',   rarity: 1, price: { type: 'coin', amount: 1000 }, bonus: { stamina: 0.10 },       desc: '베테랑 아줌마 - 체력소모 -10%' },
-    { id: 'char_004', name: '이땅녀',   rarity: 2, price: { type: 'coin', amount: 2000 }, bonus: { treasure_rate: 0.05 }, desc: '씩씩한 여대생 - 보물확률 +5%' },
-    { id: 'char_005', name: '굴팔이',       rarity: 2, price: { type: 'relic', amount: 30 },  bonus: { dig_speed: 0.08 },     desc: '평생 땅만 판 노가다 영감 - 속도 +8%' },
-    { id: 'char_006', name: '금속탐지 김씨', rarity: 2, price: { type: 'relic', amount: 50 },  bonus: { detect: 0.10 },        desc: '동네 보물사냥꾼 아저씨 - 탐지 +10%' },
+    // 무료 6종 — 모두 free (사장님 정책: 무료 6종은 진입 즉시 모두 사용 가능, 보너스만 차별)
+    { id: 'char_001', name: '박삽돌',         rarity: 1, price: { type: 'free' }, bonus: {},                      desc: '기본 (튜토리얼)' },
+    { id: 'char_002', name: '굴착용',         rarity: 1, price: { type: 'free' }, bonus: { dig_speed: 0.05 },     desc: '알바생 - 삽질속도 +5%' },
+    { id: 'char_003', name: '김파순',         rarity: 1, price: { type: 'free' }, bonus: { stamina: 0.10 },       desc: '베테랑 아줌마 - 체력소모 -10%' },
+    { id: 'char_004', name: '이땅녀',         rarity: 2, price: { type: 'free' }, bonus: { treasure_rate: 0.05 }, desc: '씩씩한 여대생 - 보물확률 +5%' },
+    { id: 'char_005', name: '굴팔이',         rarity: 2, price: { type: 'free' }, bonus: { dig_speed: 0.08 },     desc: '평생 땅만 판 노가다 영감 - 속도 +8%' },
+    { id: 'char_006', name: '금속탐지 김씨',   rarity: 2, price: { type: 'free' }, bonus: { detect: 0.10 },        desc: '동네 보물사냥꾼 아저씨 - 탐지 +10%' },
 
     // ━━━━━━━ 직업 시리즈 (5종) ━━━━━━━
     { id: 'char_007', name: '정굴착',     rarity: 2, price: { type: 'krw', amount: 1900 }, bonus: { dig_speed: 0.10 },                       desc: '굴착기 기사' },

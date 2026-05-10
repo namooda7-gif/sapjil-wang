@@ -1,7 +1,7 @@
 // 재화 관리 매니저 (삽코인, 다이아삽, 유물조각, 삽 레벨, 캐릭터)
 // localStorage로 로컬 저장 - 추후 FirebaseManager와 연동
 import { getShovelByLevel } from '../data/shovels.js';
-import { getCharacterById } from '../data/characters.js';
+import { getCharacterById, CHARACTERS } from '../data/characters.js';
 
 const STORAGE_KEY = 'sapjilwang_currency_v1';
 
@@ -25,6 +25,14 @@ export default class CurrencyManager {
         this.selectedCharacterId = DEFAULT_CHARACTER_ID;
 
         this.load();
+
+        // 무료 캐릭터(price.type === 'free') 자동 보유 보장 — load() early-return 케이스(신규 유저) 백업
+        // load() 안에서도 한 번 처리하지만 localStorage 비어있으면 그 분기 안 탐
+        CHARACTERS.forEach(c => {
+            if (c.price && c.price.type === 'free' && !this.ownedCharacters.includes(c.id)) {
+                this.ownedCharacters.push(c.id);
+            }
+        });
     }
 
     // 박물관: 보물 발견 시 호출. 같은 id면 count 증가, 새 id면 추가
@@ -196,6 +204,13 @@ export default class CurrencyManager {
             if (!this.ownedCharacters.includes(DEFAULT_CHARACTER_ID)) {
                 this.ownedCharacters.unshift(DEFAULT_CHARACTER_ID);
             }
+            // 무료 캐릭터(price.type === 'free')는 항상 자동 보유 — 정책: 무료는 진입 즉시 사용 가능
+            // characters.js에서 무료로 추가/지정만 하면 코드 수정 없이 자동 반영
+            CHARACTERS.forEach(c => {
+                if (c.price && c.price.type === 'free' && !this.ownedCharacters.includes(c.id)) {
+                    this.ownedCharacters.push(c.id);
+                }
+            });
             // 선택 캐릭터 — 보유 중이 아니면 디폴트로 fallback
             const selected = data.selectedCharacterId || DEFAULT_CHARACTER_ID;
             this.selectedCharacterId = this.ownedCharacters.includes(selected)
