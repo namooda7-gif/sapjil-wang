@@ -1,8 +1,13 @@
-// 재화 관리 매니저 (삽코인, 다이아삽, 유물조각, 삽 레벨)
+// 재화 관리 매니저 (삽코인, 다이아삽, 유물조각, 삽 레벨, 캐릭터)
 // localStorage로 로컬 저장 - 추후 FirebaseManager와 연동
 import { getShovelByLevel } from '../data/shovels.js';
+import { getCharacterById } from '../data/characters.js';
 
 const STORAGE_KEY = 'sapjilwang_currency_v1';
+
+// 기본 보유 캐릭터 — 박삽돌은 튜토리얼이라 처음부터 보유
+const DEFAULT_CHARACTER_ID    = 'char_001';
+const DEFAULT_OWNED_CHARACTERS = ['char_001'];
 
 export default class CurrencyManager {
     constructor() {
@@ -14,6 +19,10 @@ export default class CurrencyManager {
         // 박물관용 보물 수집 목록 (id 기준 dedupe + count)
         // 항목 형식: { id, name, rarity, desc, layerId, layerName, count, foundAt }
         this.collectedTreasures = [];
+
+        // 캐릭터 보유/선택 — 초기값은 박삽돌만 보유 + 선택
+        this.ownedCharacters    = [...DEFAULT_OWNED_CHARACTERS];
+        this.selectedCharacterId = DEFAULT_CHARACTER_ID;
 
         this.load();
     }
@@ -103,6 +112,53 @@ export default class CurrencyManager {
         return true;
     }
 
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 캐릭터 보유/선택
+    //   ownedCharacters: ['char_001', ...]
+    //   selectedCharacterId: 현재 사용 중인 캐릭터 (게임/메뉴 미리보기 둘 다 이 값 참조)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+    ownsCharacter(id) {
+        return Array.isArray(this.ownedCharacters) && this.ownedCharacters.includes(id);
+    }
+
+    // 캐릭터 구매. 가격 type에 따라 coin/relic/diamond/krw 자동 차감
+    //   성공 → true (보유 목록에 추가 + 저장). 실패 → false (보유 중/캐릭터 없음/잔액 부족/krw는 별도 결제)
+    purchaseCharacter(id) {
+        const def = getCharacterById(id);
+        if (!def) return false;
+        if (this.ownsCharacter(id)) return false;
+        const price = def.price || {};
+
+        if (price.type === 'free') {
+            // 무료: 그냥 보유 추가
+        } else if (price.type === 'coin') {
+            if (!this.spendCoin(price.amount || 0)) return false;
+        } else if (price.type === 'relic') {
+            if (!this.spendRelic(price.amount || 0)) return false;
+        } else if (price.type === 'diamond') {
+            if (!this.spendDiamond(price.amount || 0)) return false;
+        } else if (price.type === 'krw') {
+            // 실 결제 — 인앱결제 연동 전이라 차단
+            return false;
+        } else {
+            return false;
+        }
+
+        if (!Array.isArray(this.ownedCharacters)) this.ownedCharacters = [];
+        this.ownedCharacters.push(id);
+        this.save();
+        return true;
+    }
+
+    // 캐릭터 선택. 보유한 캐릭터만 선택 가능
+    selectCharacter(id) {
+        if (!this.ownsCharacter(id)) return false;
+        this.selectedCharacterId = id;
+        this.save();
+        return true;
+    }
+
     // 로컬 저장 (오프라인 대비)
     save() {
         try {
@@ -112,6 +168,8 @@ export default class CurrencyManager {
                 relic: this.relic,
                 shovelLevel: this.shovelLevel,
                 collectedTreasures: this.collectedTreasures,
+                ownedCharacters: this.ownedCharacters,
+                selectedCharacterId: this.selectedCharacterId,
                 updated_at: Date.now()
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -130,6 +188,19 @@ export default class CurrencyManager {
             this.relic = data.relic || 0;
             this.shovelLevel = data.shovelLevel || 0;
             this.collectedTreasures = Array.isArray(data.collectedTreasures) ? data.collectedTreasures : [];
+            // 캐릭터 — 구버전 저장에는 없으므로 디폴트 fallback
+            this.ownedCharacters = Array.isArray(data.ownedCharacters) && data.ownedCharacters.length > 0
+                ? data.ownedCharacters
+                : [...DEFAULT_OWNED_CHARACTERS];
+            // 박삽돌(char_001)은 항상 보유 보장 (튜토리얼 의존)
+            if (!this.ownedCharacters.includes(DEFAULT_CHARACTER_ID)) {
+                this.ownedCharacters.unshift(DEFAULT_CHARACTER_ID);
+            }
+            // 선택 캐릭터 — 보유 중이 아니면 디폴트로 fallback
+            const selected = data.selectedCharacterId || DEFAULT_CHARACTER_ID;
+            this.selectedCharacterId = this.ownedCharacters.includes(selected)
+                ? selected
+                : DEFAULT_CHARACTER_ID;
         } catch (e) {
             console.warn('재화 로드 실패:', e);
         }
@@ -140,6 +211,8 @@ export default class CurrencyManager {
         this.diamond = 0;
         this.relic = 0;
         this.shovelLevel = 0;
+        this.ownedCharacters = [...DEFAULT_OWNED_CHARACTERS];
+        this.selectedCharacterId = DEFAULT_CHARACTER_ID;
         this.save();
     }
 }

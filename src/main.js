@@ -5,6 +5,7 @@ import MenuScene from './scenes/MenuScene.js';
 import GameScene from './scenes/GameScene.js';
 import ShopScene from './scenes/ShopScene.js';
 import MuseumScene from './scenes/MuseumScene.js';
+import CharacterScene from './scenes/CharacterScene.js';
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // Scale 설정 (세로형 모바일 풀스크린)
@@ -62,7 +63,7 @@ const config = {
         pixelArt: false,
         roundPixels: true
     },
-    scene: [BootScene, MenuScene, GameScene, ShopScene, MuseumScene]
+    scene: [BootScene, MenuScene, GameScene, ShopScene, MuseumScene, CharacterScene]
 };
 
 // 페이지 로드 후 게임 시작

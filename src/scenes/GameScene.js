@@ -424,6 +424,11 @@ export default class GameScene extends Phaser.Scene {
         this.soundManager = new SoundManager(this);
         this.currencyManager = new CurrencyManager();
 
+        // 현재 사용 중인 캐릭터 ID — CurrencyManager에서 매번 갱신 (씬 재진입 시도 반영)
+        // 선택 캐릭터 idle 자산 미로드 시 char_001 폴백 → 게임 깨짐 방지
+        const selectedId = this.currencyManager.selectedCharacterId || 'char_001';
+        this.characterId = this.textures.exists(`${selectedId}_idle`) ? selectedId : 'char_001';
+
         // 배경 폴백 사각형 (bgImage 로드 실패 시에만 보이는 색)
         this.bg = this.add.rectangle(width / 2, height / 2, width, height, 0x6b4423);
 

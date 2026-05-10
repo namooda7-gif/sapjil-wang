@@ -277,11 +277,15 @@ export default class MenuScene extends Phaser.Scene {
     // #3 박삽돌 - 터치 시 라인 순환 + 깜짝 흔들림
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createInteractiveCharacter(width, height) {
-        if (!this.textures.exists('char_001_idle')) return;
+        // 현재 선택된 캐릭터의 idle 텍스처 (없으면 박삽돌 폴백)
+        const selectedId = (this.currencyManager && this.currencyManager.selectedCharacterId) || 'char_001';
+        let idleKey = `${selectedId}_idle`;
+        if (!this.textures.exists(idleKey)) idleKey = 'char_001_idle';
+        if (!this.textures.exists(idleKey)) return;
 
         const charX = width * 0.78;
         const charY = height * 0.74;
-        const char = this.add.image(charX, charY, 'char_001_idle')
+        const char = this.add.image(charX, charY, idleKey)
             .setOrigin(0.5).setDepth(5);
 
         const targetH = height * 0.40;
@@ -399,7 +403,7 @@ export default class MenuScene extends Phaser.Scene {
         this.createStartButton(btnX, btnYs[0], btnW, btnH);
         this.createWaggleHand(btnX + btnW / 2 + 30, btnYs[0]);
         this.createIconButton(btnX, btnYs[1], btnW, btnH, '👷', '캐릭터', () => {
-            this.showComingSoonToast('캐릭터 선택은 곧 추가됩니다');
+            this.scene.start('CharacterScene');
         });
         this.createIconButton(btnX, btnYs[2], btnW, btnH, '🛒', '상점', () => {
             this.scene.start('ShopScene');
