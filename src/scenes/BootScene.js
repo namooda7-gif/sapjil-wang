@@ -45,6 +45,7 @@ export default class BootScene extends Phaser.Scene {
         this.load.image('char_001_tired',    'assets/characters/char_001_tired.png');
         this.load.image('char_001_panic',    'assets/characters/char_001_panic.png');
         this.load.image('char_001_dig_hard', 'assets/characters/char_001_dig_hard.png');
+        this.load.image('char_001_nosebleed','assets/characters/char_001_nosebleed.png');
 
         // ━━━ 무료 캐릭터 char_002~006 idle만 부팅 시 로드 (lazy load 최적화) ━━━
         // 사장님 보고: 로딩 길어 첫 탭 안 눌림 → 부팅 자산 96MB(48장) → 28MB(14장)로 70% 감소

@@ -3447,24 +3447,51 @@ export default class GameScene extends Phaser.Scene {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 코피/초집중 — 콤보 100 정확히 도달 시 한 번 발동
-    //   코에서 빨간 점 툭 + 화면 빨간 flash + "🩸 초집중 모드!" 텍스트
+    //   캐릭터별 nosebleed PNG (코피 분수 + 만화 글자) + scale 펑 + 화면 flash + 텍스트
+    //   PNG 미로드 시 빨간 점 graphics 폴백 (lazy load 중인 캐릭터 안전)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     triggerNosebleed() {
         if (!this.character) return;
         // 화면 빨간 flash
         this.cameras.main.flash(220, 200, 30, 30);
-        // 코 위치에서 빨간 점 떨어짐 (캐릭터 얼굴 ~중앙 위쪽)
-        const noseX = this.character.x;
-        const noseY = this.character.y - this.character.displayHeight * 0.65;
-        const drop = this.add.circle(noseX, noseY, 6, 0xc8102e, 1).setDepth(17);
-        this.tweens.add({
-            targets: drop,
-            y: noseY + 90,
-            alpha: 0,
-            duration: 700, ease: 'Quad.in',
-            onComplete: () => drop.destroy()
-        });
+
+        // 캐릭터 PNG로 nosebleed 텍스처 전환 + scale 펑 tween (1.0 → 1.15 → 1.0)
+        const noseKey = `${this.characterId}_nosebleed`;
+        if (this.textures.exists(noseKey)) {
+            // 진행 중인 transient 취소 후 nosebleed로 전환
+            this.cancelDigRevert();
+            this.cancelSurpriseRevert();
+            this.cancelPanicRevert();
+            this.setCharacterState('nosebleed');
+            // 임팩트 scale 펑 (캐릭터 자체 1.0 → 1.15 → 1.0)
+            const baseScaleX = this.character.scaleX;
+            const baseScaleY = this.character.scaleY;
+            this.tweens.add({
+                targets: this.character,
+                scaleX: baseScaleX * 1.15,
+                scaleY: baseScaleY * 1.15,
+                duration: 180, yoyo: true, ease: 'Quad.out'
+            });
+            // 1.2초 후 베이스 텍스처 자동 복귀 (panicRevertTimer 패턴 재사용)
+            if (this.panicRevertTimer) this.panicRevertTimer.remove(false);
+            this.panicRevertTimer = this.time.delayedCall(1200, () => {
+                this.panicRevertTimer = null;
+            });
+        } else {
+            // PNG 미로드 폴백 — 빨간 점 graphics
+            const noseX = this.character.x;
+            const noseY = this.character.y - this.character.displayHeight * 0.65;
+            const drop = this.add.circle(noseX, noseY, 6, 0xc8102e, 1).setDepth(17);
+            this.tweens.add({
+                targets: drop,
+                y: noseY + 90, alpha: 0,
+                duration: 700, ease: 'Quad.in',
+                onComplete: () => drop.destroy()
+            });
+        }
+
         // 초집중 텍스트 (캐릭터 옆에 솟구침)
+        const noseY = this.character.y - this.character.displayHeight * 0.65;
         this.showFloatingText(this.character.x + 80, noseY, '🩸 초집중!', '#ff3030');
     }
 
@@ -3516,7 +3543,7 @@ export default class GameScene extends Phaser.Scene {
     //   - 진행 중 setCharacterState 호출 시 미로드 상태면 textures.exists 체크로 noop (idle 유지)
     lazyLoadCharacterStates(charId) {
         if (!charId) return;
-        const states = ['dig', 'combo', 'surprise', 'clear', 'tired', 'panic', 'dig_hard'];
+        const states = ['dig', 'combo', 'surprise', 'clear', 'tired', 'panic', 'dig_hard', 'nosebleed'];
         const missing = states.filter(s => !this.textures.exists(`${charId}_${s}`));
         if (missing.length === 0) return;
         missing.forEach(s => {
