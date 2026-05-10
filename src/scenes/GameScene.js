@@ -262,7 +262,7 @@ const SAPREME_SPAWN_INTERVAL      = 25;        // 매 N탭마다 굴림
 const SAPREME_SPAWN_CHANCE        = 0.25;      // 25% 등장 확률
 const SAPREME_FIRST_GUARANTEED_AT = 15;        // 매 레이어 진입 후 이 탭에 무조건 1회
 const SAPREME_LIFETIME_MS         = 5000;      // 5초 머무르고 자동 페이드아웃
-const SAPREME_HIT_RADIUS          = 75;        // 정조준 히트 반경 (px) — 박스 + 살짝 패딩
+const SAPREME_HIT_RADIUS          = 225;       // 정조준 히트 반경 (px) — 박스 + 살짝 패딩 (시각 3배 확대 대응)
 const SAPREME_BONUS_COIN_MULT     = 2.0;       // 명중 시 그 탭 코인 ×2
 const SAPREME_BONUS_COMBO_ADD     = 5;         // 명중 시 콤보 +5
 const SAPREME_REACTION_LINES = [
@@ -1831,29 +1831,29 @@ export default class GameScene extends Phaser.Scene {
 
         const c = this.add.container(startX, startY).setDepth(15);
 
-        // 외곽 황금 글로우 (펄스용 - 가장 뒤)
-        const glow = this.add.circle(0, 0, 70, 0xffd700, 0.35);
+        // 외곽 황금 글로우 (펄스용 - 가장 뒤) — 3배 확대 (70 → 210)
+        const glow = this.add.circle(0, 0, 210, 0xffd700, 0.35);
 
-        // Supreme 미감 패러디 - 빨간 박스 로고 (상단)
-        const box = this.add.rectangle(0, -42, 110, 30, 0xc8102e)
-            .setStrokeStyle(2, 0x000000, 0.85);
-        const brandText = this.add.text(0, -42, 'SAPREME®', {
-            font: 'italic bold 18px serif',
+        // Supreme 미감 패러디 - 빨간 박스 로고 (상단) — 3배 확대 (110×30 → 330×90, y=-42 → -126)
+        const box = this.add.rectangle(0, -126, 330, 90, 0xc8102e)
+            .setStrokeStyle(6, 0x000000, 0.85);
+        const brandText = this.add.text(0, -126, 'SAPREME®', {
+            font: 'italic bold 54px serif',
             color: '#ffffff'
         }).setOrigin(0.5);
 
-        // 골드삽 아이콘 (중앙) - 살짝 큰 픽토그램, 골드 외곽선
-        const shovel = this.add.text(0, 5, '⛏️', {
-            font: '56px sans-serif',
+        // 골드삽 아이콘 (중앙) - 3배 확대 (56 → 168, y=5 → 15)
+        const shovel = this.add.text(0, 15, '⛏️', {
+            font: '168px sans-serif',
             stroke: '#ffd700',
-            strokeThickness: 3
+            strokeThickness: 9
         }).setOrigin(0.5);
 
-        // LIMITED DROP 라벨 (하단)
-        const limitedText = this.add.text(0, 48, 'LIMITED DROP', {
-            font: 'bold 13px sans-serif',
+        // LIMITED DROP 라벨 (하단) — 3배 확대 (13 → 39, y=48 → 144)
+        const limitedText = this.add.text(0, 144, 'LIMITED DROP', {
+            font: 'bold 39px sans-serif',
             color: '#ffd700',
-            stroke: '#000', strokeThickness: 2
+            stroke: '#000', strokeThickness: 6
         }).setOrigin(0.5);
 
         c.add([glow, box, brandText, shovel, limitedText]);
@@ -2014,7 +2014,8 @@ export default class GameScene extends Phaser.Scene {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 드링크 실제 낙하 (사전 배너 후 호출)
     //   - 크기 확대(54→64px), 글로우 펄스
-    //   - 낙하 1500ms (이전 900ms) + Quad.in (등속 가속)
+    //   - 낙하 1500ms + Quad.in (Y는 가속 낙하)
+    //   - X는 사인파 나선 궤적 (좌우 흔들), 진폭은 점점 감소 → 마지막엔 캐릭터 위로 정확히 수렴
     //   - 트레일 잔상 파티클 (등급 색)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     launchDrinkFall(pickedKey) {
@@ -2025,6 +2026,10 @@ export default class GameScene extends Phaser.Scene {
         const endX   = this.character.x;
         const endY   = this.character.y - this.character.displayHeight * 0.6;
         const FALL_MS = 1500;
+
+        // 나선 궤적 파라미터 — 사장님 요청 "원을 그리면서 떨어지면 좋겠어"
+        const SWAY_AMPLITUDE = 140;   // 좌우 진폭 (px) — 캐릭터 옆구리 너머까지 흔들려 가시성 확보
+        const SWAY_CYCLES    = 2.5;   // 낙하 동안 돌 회전 수 (2.5바퀴)
 
         const container = this.add.container(startX, startY).setDepth(46);
 
@@ -2063,11 +2068,18 @@ export default class GameScene extends Phaser.Scene {
             quantity: 1
         }).setDepth(45);
 
-        // 낙하 (1500ms, Quad.in = 부드러운 가속)
+        // ━━ 낙하 (1500ms, Quad.in = 가속 낙하) — Y만 tween, X는 onUpdate에서 사인파 ━━
+        // 진폭은 (1 - progress) 곱해 점점 작아지게 → 마지막에 캐릭터 위로 정확히 수렴
         this.tweens.add({
             targets: container,
-            x: endX, y: endY,
-            duration: FALL_MS, ease: 'Quad.in'
+            y: endY,
+            duration: FALL_MS, ease: 'Quad.in',
+            onUpdate: (tween) => {
+                const t = tween.progress;                          // 0 ~ 1
+                const angleRad = t * Math.PI * 2 * SWAY_CYCLES;    // 회전 각도 누적
+                const decay    = 1 - t;                            // 진폭 감쇄 (끝에서 0)
+                container.x = endX + Math.sin(angleRad) * SWAY_AMPLITUDE * decay;
+            }
         });
         this.tweens.add({
             targets: container,

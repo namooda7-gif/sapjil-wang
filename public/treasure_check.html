@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>보물 매칭 검수 (114장)</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin:0; padding:20px; background:#1a1a1a; color:#fff; font-family: 'Malgun Gothic', sans-serif; }
+  h1 { margin:0 0 8px 0; font-size:24px; }
+  .sub { color:#aaa; font-size:14px; margin-bottom:16px; }
+  .controls { display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:16px; }
+  .controls input[type="text"] { padding:6px 10px; background:#2a2a2a; border:1px solid #444; color:#fff; border-radius:4px; width:200px; }
+  .controls label { font-size:13px; color:#ccc; cursor:pointer; user-select:none; }
+  .controls label input { margin-right:4px; vertical-align:middle; }
+  .nav { position:sticky; top:0; background:#1a1a1a; padding:10px 0; border-bottom:1px solid #333; margin-bottom:20px; z-index:10; }
+  .nav a { color:#7df9ff; margin-right:14px; text-decoration:none; font-size:13px; }
+  .nav a:hover { text-decoration:underline; }
+  .layer-section { margin-bottom:40px; }
+  .layer-header { font-size:20px; margin-bottom:12px; padding-bottom:6px; border-bottom:2px solid #444; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(180px, 1fr)); gap:12px; }
+  .card { background:#2a2a2a; border-radius:8px; padding:10px; border:2px solid transparent; transition:transform .1s; }
+  .card:hover { transform:translateY(-2px); }
+  .card.common    { border-color:#7a7a7a; }
+  .card.rare      { border-color:#7df9ff; }
+  .card.epic      { border-color:#c77dff; }
+  .card.legendary { border-color:#ffd700; }
+  .img-box { position:relative; width:100%; aspect-ratio:1; background: repeating-conic-gradient(#1a1a1a 0% 25%, #222 0% 50%) 50% / 20px 20px; border-radius:4px; overflow:hidden; }
+  .img-box img { width:100%; height:100%; object-fit:contain; }
+  .img-box .fallback { position:absolute; inset:0; display:none; align-items:center; justify-content:center; font-size:60px; background:#111; }
+  .img-box img.broken { display:none; }
+  .img-box img.broken + .fallback { display:flex; }
+  .id { font-family: 'Consolas', monospace; font-size:11px; color:#888; margin-top:8px; }
+  .name { font-size:15px; font-weight:bold; margin:4px 0 4px 0; line-height:1.2; }
+  .meta { display:flex; gap:6px; align-items:center; font-size:11px; margin-bottom:6px; flex-wrap:wrap; }
+  .badge { padding:2px 6px; border-radius:3px; font-weight:bold; font-size:10px; }
+  .badge.common    { background:#7a7a7a; color:#fff; }
+  .badge.rare      { background:#7df9ff; color:#000; }
+  .badge.epic      { background:#c77dff; color:#fff; }
+  .badge.legendary { background:#ffd700; color:#000; }
+  .emoji { font-size:14px; }
+  .desc { font-size:11px; color:#999; line-height:1.4; }
+  .check-row { display:flex; gap:8px; align-items:center; margin-top:8px; padding-top:8px; border-top:1px solid #3a3a3a; }
+  .check-row label { font-size:11px; cursor:pointer; user-select:none; flex:1; }
+  .card.flagged { background:#3a1a1a; border-color:#ff6b6b !important; }
+  .card.hidden { display:none; }
+  #flagged-summary { position:fixed; bottom:20px; right:20px; background:#3a1a1a; border:2px solid #ff6b6b; padding:12px; border-radius:8px; max-width:400px; max-height:50vh; overflow-y:auto; font-size:12px; display:none; }
+  #flagged-summary.show { display:block; }
+  #flagged-summary h3 { margin:0 0 8px 0; font-size:14px; color:#ff6b6b; }
+  #flagged-summary code { color:#ffd700; }
+  #copy-btn { background:#ff6b6b; color:#fff; border:none; padding:6px 12px; border-radius:4px; cursor:pointer; margin-top:8px; font-size:12px; }
+  #copy-btn:hover { background:#ff5050; }
+</style>
+</head>
+<body>
+<h1>🏺 보물 매칭 검수 (114장)</h1>
+<p class="sub">그림과 이름이 안 맞는 보물 발견하면 ❌ 체크 → 우측 하단에 ID 목록 누적 → 복사 버튼으로 한 번에 복사</p>
+
+<div class="controls">
+  <input type="text" id="search" placeholder="🔍 이름·ID·desc 검색...">
+  <label><input type="checkbox" id="filter-flagged"> ❌ 체크된 것만 보기</label>
+  <label><input type="checkbox" id="hide-common"> common 숨기기</label>
+  <button id="reset-btn" style="background:#444;color:#fff;border:none;padding:6px 12px;border-radius:4px;cursor:pointer;font-size:12px;">체크 전부 해제</button>
+</div>
+
+<div class="nav">
+  <a href="#l1">layer_001 동네 공사판 (18)</a>
+  <a href="#l2">layer_002 학교 운동장 (18)</a>
+  <a href="#l3">layer_003 아파트 화단 (19)</a>
+  <a href="#l4">layer_004 찜질방 바닥 (20)</a>
+  <a href="#l5">layer_005 군부대 훈련장 (20)</a>
+  <a href="#l6">layer_006 콘서트장 (19)</a>
+</div>
+
+<div id="container"></div>
+
+<div id="flagged-summary">
+  <h3>❌ 그림-이름 불일치 의심 (<span id="flagged-count">0</span>)</h3>
+  <div id="flagged-list"></div>
+  <button id="copy-btn">ID 목록 복사</button>
+</div>
+
+<script>
+const TREASURES = [
+  // layer_001 — 동네 공사판
+  { id:'t_001_01', layer:1, name:'녹슨 망치',         emoji:'🔨', rarity:'common',    desc:'"누가 흘렸나?" 공사판의 흔적' },
+  { id:'t_001_02', layer:1, name:'페트병 뚜껑',       emoji:'🧴', rarity:'common',    desc:'쓰레기인지 보물인지...' },
+  { id:'t_001_03', layer:1, name:'500원 동전',        emoji:'🪙', rarity:'common',    desc:'오 진짜 돈이다!' },
+  { id:'t_001_04', layer:1, name:'작업화 한 짝',      emoji:'👞', rarity:'rare',      desc:'한 짝은 어디 갔어?' },
+  { id:'t_001_05', layer:1, name:'막걸리 빈병',       emoji:'🍶', rarity:'rare',      desc:'아저씨들 야식의 흔적' },
+  { id:'t_001_06', layer:1, name:'감리사의 안전모',   emoji:'⛑️', rarity:'epic',      desc:'"내 안전모! 어디갔지?"' },
+  { id:'t_001_07', layer:1, name:'황금 못',           emoji:'🔩', rarity:'legendary', desc:'왜 못이 황금이지...?' },
+  { id:'t_001_08', layer:1, name:'금덩어리',          emoji:'🪙', rarity:'epic',      desc:'금봤다' },
+  { id:'t_001_09', layer:1, name:'캔커피 빈캔',       emoji:'☕', rarity:'common',    desc:'노가다의 연료' },
+  { id:'t_001_10', layer:1, name:'한 짝 작업 장갑',   emoji:'🧤', rarity:'common',    desc:'다른 한 짝은 어디로' },
+  { id:'t_001_11', layer:1, name:'돌처럼 굳은 빵',    emoji:'🥖', rarity:'common',    desc:'이가 안 들어가' },
+  { id:'t_001_12', layer:1, name:'대충 쓴 줄자',      emoji:'📏', rarity:'common',    desc:'느낌으로 했지' },
+  { id:'t_001_13', layer:1, name:'형식상 안전점검표', emoji:'📋', rarity:'rare',      desc:'이거 사장님이 시킨 거' },
+  { id:'t_001_14', layer:1, name:'노가다 진통제',     emoji:'💊', rarity:'rare',      desc:'허리야 무릎아' },
+  { id:'t_001_15', layer:1, name:'보다 만 스포츠 신문', emoji:'📰', rarity:'rare',    desc:'어제 경기 결과' },
+  { id:'t_001_16', layer:1, name:'1985 산업역군 메달', emoji:'🥇', rarity:'epic',     desc:'그 시절 노가다는 영웅' },
+  { id:'t_001_17', layer:1, name:'사장의 이중장부',   emoji:'📝', rarity:'epic',      desc:'임금이 두 종류네...?' },
+  { id:'t_001_18', layer:1, name:'환갑잔치 봉투',     emoji:'💵', rarity:'legendary', desc:'누가 만원짜리로 줬구나' },
+
+  // layer_002 — 학교 운동장
+  { id:'t_002_01', layer:2, name:'잃어버린 도시락 통', emoji:'🍱', rarity:'common',    desc:'엄마가 싸주신 그 도시락... 아직도 김치냄새가...' },
+  { id:'t_002_02', layer:2, name:'체육복 한 짝',       emoji:'👕', rarity:'common',    desc:'체육시간 종 치고 사라진 그것' },
+  { id:'t_002_03', layer:2, name:'0점 시험지',         emoji:'📝', rarity:'common',    desc:'왜 굳이 묻었어...?' },
+  { id:'t_002_04', layer:2, name:'운동회 청군 머리띠', emoji:'🎀', rarity:'rare',      desc:'"청군 이겨라!"의 추억' },
+  { id:'t_002_05', layer:2, name:'사라진 축구공',      emoji:'⚽', rarity:'rare',      desc:'그날 슛이 너무 강했나...' },
+  { id:'t_002_06', layer:2, name:'교장선생님 훈장',    emoji:'🏅', rarity:'epic',      desc:'도대체 왜 묻혀있는 거지?' },
+  { id:'t_002_07', layer:2, name:'타임캡슐 1995',      emoji:'⏳', rarity:'legendary', desc:'졸업생들의 약속이 잠든 곳' },
+  { id:'t_002_08', layer:2, name:'굴찌 운동화',         emoji:'👟', rarity:'rare',      desc:'학생이 잃은 듯' },
+  { id:'t_002_09', layer:2, name:'모서리 씹은 연필',    emoji:'✏️', rarity:'common',    desc:'스트레스 받았구나' },
+  { id:'t_002_10', layer:2, name:'안 먹은 급식 빵',     emoji:'🍪', rarity:'common',    desc:'그날 도시락 까먹음' },
+  { id:'t_002_11', layer:2, name:'안 빠지는 컴파스',    emoji:'📐', rarity:'common',    desc:'왜 끼웠지' },
+  { id:'t_002_12', layer:2, name:'바람 빠진 피구공',    emoji:'🏐', rarity:'common',    desc:'그날 결승전 그것' },
+  { id:'t_002_13', layer:2, name:'못 전한 러브레터',    emoji:'💌', rarity:'rare',      desc:'10년 전 마음' },
+  { id:'t_002_14', layer:2, name:'찢은 시 노트',        emoji:'📓', rarity:'rare',      desc:'내가 쓴 흑역사 시' },
+  { id:'t_002_15', layer:2, name:'90년대 야구카드',     emoji:'🎴', rarity:'rare',      desc:'지금 가치는...?' },
+  { id:'t_002_16', layer:2, name:'짝꿍의 종이반지',     emoji:'💍', rarity:'epic',      desc:'이게 첫사랑이었나' },
+  { id:'t_002_17', layer:2, name:'학생회장 투표지',     emoji:'📋', rarity:'epic',      desc:'내 한 표 무용했네' },
+  { id:'t_002_18', layer:2, name:'분실된 1등 트로피',   emoji:'🏆', rarity:'legendary', desc:'친구가 묻었나봐' },
+
+  // layer_003 — 아파트 화단
+  { id:'t_003_01', layer:3, name:'잃어버린 택배',        emoji:'📦', rarity:'common',    desc:'"고객님께서 부재중이라..." 그게 여기 있었네' },
+  { id:'t_003_02', layer:3, name:'강아지 인식표',        emoji:'🐶', rarity:'common',    desc:'"몽실이"... 잘 있니?' },
+  { id:'t_003_03', layer:3, name:'아이 장난감 자동차',   emoji:'🚗', rarity:'common',    desc:'꼬마 손에서 떨어진 보물' },
+  { id:'t_003_04', layer:3, name:'베란다에서 떨어진 양말', emoji:'🧦', rarity:'rare',    desc:'바람의 장난' },
+  { id:'t_003_05', layer:3, name:'경비실 명패',          emoji:'🪪', rarity:'rare',      desc:'"경비 책임자 김씨"... 누가 묻은 거야?' },
+  { id:'t_003_06', layer:3, name:'관리비 영수증 뭉치',   emoji:'🧾', rarity:'epic',      desc:'"미납 3개월"... 하지만 보물!' },
+  { id:'t_003_07', layer:3, name:'입주민 회장 도장',     emoji:'📜', rarity:'legendary', desc:'권력의 상징이 묻혀있다니!' },
+  { id:'t_003_08', layer:3, name:'복권',                  emoji:'🎟️', rarity:'rare',      desc:'1등이면 삽질그만' },
+  { id:'t_003_09', layer:3, name:'마른 강아지 변',        emoji:'💩', rarity:'common',    desc:'그날 산책 누가...?' },
+  { id:'t_003_10', layer:3, name:'말라죽은 화분',         emoji:'🥥', rarity:'common',    desc:'물 좀 줘요...' },
+  { id:'t_003_11', layer:3, name:'홧김에 던진 칫솔',      emoji:'🪥', rarity:'common',    desc:'부부싸움의 흔적' },
+  { id:'t_003_12', layer:3, name:'편의점 영수증',         emoji:'🧾', rarity:'common',    desc:'삼각김밥 + 박카스' },
+  { id:'t_003_13', layer:3, name:'폐건전지',              emoji:'🔋', rarity:'common',    desc:'여기다 묻으면 안돼요!' },
+  { id:'t_003_14', layer:3, name:'엘베 1점 만점 설문',    emoji:'📋', rarity:'rare',      desc:'이 아파트 평점 ㅋㅋ' },
+  { id:'t_003_15', layer:3, name:'아이가 놓친 풍선',      emoji:'🎈', rarity:'rare',      desc:'엄마 미안해...' },
+  { id:'t_003_16', layer:3, name:'옆집 부부싸움 메모',    emoji:'💌', rarity:'rare',      desc:'각방 쓰자' },
+  { id:'t_003_17', layer:3, name:'본인 안 닮은 신분증',   emoji:'🪪', rarity:'epic',      desc:'이거 진짜 본인?' },
+  { id:'t_003_18', layer:3, name:'1980년대 가족사진',     emoji:'📸', rarity:'epic',      desc:'1세대 입주민의 흔적' },
+  { id:'t_003_19', layer:3, name:'이혼하며 던진 결혼반지', emoji:'💍', rarity:'legendary', desc:'원망의 무게' },
+
+  // layer_004 — 찜질방 바닥
+  { id:'t_004_01', layer:4, name:'누가 흘린 양말',          emoji:'🧦', rarity:'common',    desc:'땀냄새가... 진하다' },
+  { id:'t_004_02', layer:4, name:'식혜 빈병',               emoji:'🥤', rarity:'common',    desc:'단군 이래 최고의 음료' },
+  { id:'t_004_03', layer:4, name:'바싹 마른 삶은 계란',     emoji:'🥚', rarity:'common',    desc:'몇 년이나 묻혀있던 거야...?' },
+  { id:'t_004_04', layer:4, name:'잃어버린 안경',           emoji:'👓', rarity:'rare',      desc:'"내 안경 어디갔지?" 여기 있었네!' },
+  { id:'t_004_05', layer:4, name:'구겨진 만원 지폐',        emoji:'💵', rarity:'rare',      desc:'주머니에서 흘렸나봐' },
+  { id:'t_004_06', layer:4, name:'찜질방 단골 회원증',      emoji:'🎫', rarity:'epic',      desc:'"VIP" 도장이 찍힌 그것' },
+  { id:'t_004_07', layer:4, name:'사장님의 비밀 금고열쇠',  emoji:'🗝️', rarity:'legendary', desc:'왜 바닥에 묻혀있었지...?' },
+  { id:'t_004_08', layer:4, name:'루이뷔돌 가방',          emoji:'👜', rarity:'epic',      desc:'왠 루이비돌' },
+  { id:'t_004_09', layer:4, name:'삽이아몬드 반지',        emoji:'💍', rarity:'legendary', desc:'프러포즈 실패한 그분' },
+  { id:'t_004_10', layer:4, name:'에르삽 가방',            emoji:'👜', rarity:'epic',      desc:'사장님 부인 거 맞나요?' },
+  { id:'t_004_11', layer:4, name:'마른 오이 마사지팩',     emoji:'🥒', rarity:'common',    desc:'얼굴에 올렸던 그것' },
+  { id:'t_004_12', layer:4, name:'이 빠진 머리빗',         emoji:'🪮', rarity:'common',    desc:'너무 많이 썼어' },
+  { id:'t_004_13', layer:4, name:'씹힌 식혜 빨대',         emoji:'🥤', rarity:'common',    desc:'아이의 흔적' },
+  { id:'t_004_14', layer:4, name:'양머리 수건',            emoji:'🐑', rarity:'common',    desc:'찜질방 시그니처' },
+  { id:'t_004_15', layer:4, name:'1000회 적립 멤버십',     emoji:'🎫', rarity:'rare',      desc:'이거 거의 살림' },
+  { id:'t_004_16', layer:4, name:'아저씨 슬리퍼 한 짝',    emoji:'👞', rarity:'rare',      desc:'그 아저씨...' },
+  { id:'t_004_17', layer:4, name:'2010년대 폴더폰',        emoji:'📱', rarity:'rare',      desc:'여기 두고 갔구나' },
+  { id:'t_004_18', layer:4, name:'사장님의 적자 일기',     emoji:'📔', rarity:'epic',      desc:'오늘도 마이너스다...' },
+  { id:'t_004_19', layer:4, name:'사우나 인연 결혼반지',   emoji:'💍', rarity:'epic',      desc:'그 결혼은 어찌됐을까' },
+  { id:'t_004_20', layer:4, name:'사장님 비상금 박스',     emoji:'💰', rarity:'legendary', desc:'사모님 모르게...' },
+
+  // layer_005 — 군부대 훈련장
+  { id:'t_005_01', layer:5, name:'군용 수통',              emoji:'💧', rarity:'common',    desc:'물이 한 방울 남아있다... 마시지마' },
+  { id:'t_005_02', layer:5, name:'잃어버린 군번줄',        emoji:'🪪', rarity:'common',    desc:'"이병 김XX 19-XXXXX"' },
+  { id:'t_005_03', layer:5, name:'야전삽 부러진 조각',     emoji:'🪓', rarity:'common',    desc:'동지여... 너도 삽질했구나' },
+  { id:'t_005_04', layer:5, name:'전투화 한 짝',           emoji:'🥾', rarity:'rare',      desc:'훈련병의 한이 서려있다' },
+  { id:'t_005_05', layer:5, name:'훈련병 일기장',          emoji:'📓', rarity:'rare',      desc:'"D-547... 너무 힘들다..."' },
+  { id:'t_005_06', layer:5, name:'황금 계급장',            emoji:'🎖️', rarity:'epic',      desc:'대장님의 것...?' },
+  { id:'t_005_07', layer:5, name:'비밀 작전 명령서',       emoji:'📜', rarity:'legendary', desc:'"극비 - 절대 누설 금지" ...읽지마' },
+  { id:'t_005_08', layer:5, name:'금괴',                   emoji:'🪙', rarity:'legendary', desc:'신이시여' },
+  { id:'t_005_09', layer:5, name:'롤삽스 시계',            emoji:'⌚', rarity:'epic',      desc:'초침이 멈췄네' },
+  { id:'t_005_10', layer:5, name:'삽렌타인 30',            emoji:'🥃', rarity:'epic',      desc:'30년산이 흙 속에' },
+  { id:'t_005_11', layer:5, name:'1995 비상식량',          emoji:'🥫', rarity:'common',    desc:'먹고 죽진 않겠지...?' },
+  { id:'t_005_12', layer:5, name:'꺾인 모자 챙',           emoji:'🪖', rarity:'common',    desc:'그날의 PT 체조' },
+  { id:'t_005_13', layer:5, name:'행정병의 주사위',         emoji:'🎲', rarity:'common',    desc:'심심해서 굴렸지' },
+  { id:'t_005_14', layer:5, name:'마른 건빵',              emoji:'🥜', rarity:'common',    desc:'별사탕은 어디갔어' },
+  { id:'t_005_16', layer:5, name:'고참의 이등병 일기',      emoji:'📓', rarity:'rare',      desc:'그땐 그랬지...' },
+  { id:'t_005_17', layer:5, name:'휴가 D-100 카운트표',    emoji:'📋', rarity:'rare',      desc:'전역까지의 영혼' },
+  { id:'t_005_18', layer:5, name:'PX 노래방 만점 메모',    emoji:'🎤', rarity:'epic',      desc:'전설의 100점 그곳' },
+  { id:'t_005_19', layer:5, name:'끓이다 만 라면 그릇',    emoji:'🍜', rarity:'epic',      desc:'1분 30초의 천국' },
+  { id:'t_005_20', layer:5, name:'분실 군 기밀 USB',       emoji:'💼', rarity:'legendary', desc:'이거... 신고해야 하나' },
+
+  // layer_006 — 아이돌 콘서트장 앞
+  { id:'t_006_01', layer:6, name:'응원봉 배터리',          emoji:'🔋', rarity:'common',    desc:'"방전돼서 버렸나봐"' },
+  { id:'t_006_02', layer:6, name:'떨어진 포토카드',        emoji:'🎴', rarity:'common',    desc:'"누구 포카지... 잘생겼다"' },
+  { id:'t_006_03', layer:6, name:'굿즈 키링',              emoji:'🔑', rarity:'common',    desc:'"한정판이었는데!!"' },
+  { id:'t_006_04', layer:6, name:'쓰다 만 팬레터',         emoji:'💌', rarity:'rare',      desc:'"오빠 사랑해... (이하생략)"' },
+  { id:'t_006_05', layer:6, name:'사인이 절반 들어간 앨범', emoji:'💿', rarity:'rare',      desc:'"왜 절반만 사인했지...?"' },
+  { id:'t_006_06', layer:6, name:'멤버 입었던 티셔츠',     emoji:'👕', rarity:'epic',      desc:'"진짜야??? 이거 진짜야???"' },
+  { id:'t_006_07', layer:6, name:'레전드 데뷔쇼 티켓',     emoji:'🎫', rarity:'legendary', desc:'"이거 경매가 천만원이야..."' },
+  { id:'t_006_08', layer:6, name:'달러뭉치',               emoji:'💵', rarity:'epic',      desc:'혹시 마약왕의 달러' },
+  { id:'t_006_09', layer:6, name:'샵넬 가방',              emoji:'👛', rarity:'epic',      desc:'짝퉁이 아니길' },
+  { id:'t_006_10', layer:6, name:'짠물 (땀+눈물)',          emoji:'💧', rarity:'common',    desc:'감동인지 더위인지' },
+  { id:'t_006_11', layer:6, name:'영상 찍다 떨어뜨린 폰',   emoji:'📱', rarity:'common',    desc:'오빠가 안 보였어' },
+  { id:'t_006_12', layer:6, name:'녹은 전달용 초콜릿',      emoji:'🍫', rarity:'common',    desc:'전해주려 했는데...' },
+  { id:'t_006_13', layer:6, name:'다 먹은 응원 도시락',     emoji:'🪅', rarity:'common',    desc:'오빠 응원에 에너지 필요' },
+  { id:'t_006_14', layer:6, name:'응원 가이드북',           emoji:'📔', rarity:'rare',      desc:'이 곡엔 이 안무!' },
+  { id:'t_006_15', layer:6, name:'못 던진 무대 선물',       emoji:'🎁', rarity:'rare',      desc:'경비에 막혔어' },
+  { id:'t_006_16', layer:6, name:'손수 수놓은 응원 손수건', emoji:'🪡', rarity:'rare',      desc:'한 달 걸린 작품' },
+  { id:'t_006_17', layer:6, name:'못 전한 100p 편지',       emoji:'📜', rarity:'epic',      desc:'내 마음 다 적었는데...' },
+  { id:'t_006_18', layer:6, name:'한정판 미개봉 굿즈',      emoji:'🎴', rarity:'epic',      desc:'알바해서 산 그것' },
+  { id:'t_006_19', layer:6, name:'멤버 던진 손수건',        emoji:'🪻', rarity:'legendary', desc:'이거 진짜 받은 사람 누구야' },
+];
+
+const LAYER_NAMES = {
+  1: { id:'l1', emoji:'🇰🇷', name:'동네 공사판' },
+  2: { id:'l2', emoji:'🇰🇷', name:'학교 운동장' },
+  3: { id:'l3', emoji:'🇰🇷', name:'아파트 화단' },
+  4: { id:'l4', emoji:'🇰🇷', name:'찜질방 바닥' },
+  5: { id:'l5', emoji:'🇰🇷', name:'군부대 훈련장' },
+  6: { id:'l6', emoji:'🇰🇷', name:'아이돌 콘서트장 앞' },
+};
+
+// localStorage에 체크 상태 저장
+const STORAGE_KEY = 'treasure_check_flagged';
+const flagged = new Set(JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'));
+
+function saveFlagged() {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify([...flagged]));
+}
+
+function render() {
+  const container = document.getElementById('container');
+  let html = '';
+  for (let l = 1; l <= 6; l++) {
+    const layerInfo = LAYER_NAMES[l];
+    const items = TREASURES.filter(t => t.layer === l);
+    html += `<section class="layer-section" id="${layerInfo.id}">
+      <h2 class="layer-header">${layerInfo.emoji} layer_00${l} — ${layerInfo.name} (${items.length}장)</h2>
+      <div class="grid">`;
+    for (const t of items) {
+      const isFlagged = flagged.has(t.id);
+      html += `
+        <div class="card ${t.rarity} ${isFlagged ? 'flagged' : ''}" data-id="${t.id}" data-name="${t.name}" data-desc="${t.desc}" data-rarity="${t.rarity}">
+          <div class="img-box">
+            <img src="assets/treasures/${t.id}.png" alt="${t.name}" onerror="this.classList.add('broken')">
+            <div class="fallback">${t.emoji}</div>
+          </div>
+          <div class="id">${t.id}</div>
+          <div class="name">${t.name}</div>
+          <div class="meta">
+            <span class="badge ${t.rarity}">${t.rarity}</span>
+            <span class="emoji">${t.emoji}</span>
+          </div>
+          <div class="desc">${t.desc}</div>
+          <div class="check-row">
+            <label><input type="checkbox" class="flag-check" data-id="${t.id}" ${isFlagged ? 'checked' : ''}> ❌ 그림-이름 안 맞음</label>
+          </div>
+        </div>`;
+    }
+    html += `</div></section>`;
+  }
+  container.innerHTML = html;
+  attachListeners();
+  updateFlaggedSummary();
+  applyFilters();
+}
+
+function attachListeners() {
+  document.querySelectorAll('.flag-check').forEach(cb => {
+    cb.addEventListener('change', e => {
+      const id = e.target.dataset.id;
+      const card = e.target.closest('.card');
+      if (e.target.checked) {
+        flagged.add(id);
+        card.classList.add('flagged');
+      } else {
+        flagged.delete(id);
+        card.classList.remove('flagged');
+      }
+      saveFlagged();
+      updateFlaggedSummary();
+      applyFilters();
+    });
+  });
+}
+
+function updateFlaggedSummary() {
+  const summary = document.getElementById('flagged-summary');
+  const list = document.getElementById('flagged-list');
+  const count = document.getElementById('flagged-count');
+  count.textContent = flagged.size;
+  if (flagged.size === 0) {
+    summary.classList.remove('show');
+    return;
+  }
+  summary.classList.add('show');
+  const sorted = [...flagged].sort();
+  list.innerHTML = sorted.map(id => {
+    const t = TREASURES.find(x => x.id === id);
+    return `<div><code>${id}</code> — ${t ? t.name : '(unknown)'}</div>`;
+  }).join('');
+}
+
+document.getElementById('copy-btn').addEventListener('click', () => {
+  const sorted = [...flagged].sort();
+  const text = sorted.map(id => {
+    const t = TREASURES.find(x => x.id === id);
+    return `${id}\t${t ? t.name : ''}\t${t ? t.rarity : ''}`;
+  }).join('\n');
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-btn');
+    const orig = btn.textContent;
+    btn.textContent = '✓ 복사됨!';
+    setTimeout(() => btn.textContent = orig, 1500);
+  });
+});
+
+document.getElementById('reset-btn').addEventListener('click', () => {
+  if (!confirm(`체크된 ${flagged.size}개 보물 표시를 모두 해제할까요?`)) return;
+  flagged.clear();
+  saveFlagged();
+  render();
+});
+
+document.getElementById('search').addEventListener('input', applyFilters);
+document.getElementById('filter-flagged').addEventListener('change', applyFilters);
+document.getElementById('hide-common').addEventListener('change', applyFilters);
+
+function applyFilters() {
+  const q = document.getElementById('search').value.trim().toLowerCase();
+  const onlyFlagged = document.getElementById('filter-flagged').checked;
+  const hideCommon = document.getElementById('hide-common').checked;
+  document.querySelectorAll('.card').forEach(card => {
+    const id = card.dataset.id;
+    const name = card.dataset.name.toLowerCase();
+    const desc = card.dataset.desc.toLowerCase();
+    const rarity = card.dataset.rarity;
+    let show = true;
+    if (q && !id.includes(q) && !name.includes(q) && !desc.includes(q)) show = false;
+    if (onlyFlagged && !flagged.has(id)) show = false;
+    if (hideCommon && rarity === 'common') show = false;
+    card.classList.toggle('hidden', !show);
+  });
+}
+
+render();
+</script>
+</body>
+</html>

@@ -285,7 +285,6 @@ export const LAYERS = [
             { id: 't_005_12', emoji: '🪖', name: '꺾인 모자 챙',           rarity: 'common',    reward: { coin: 65 },                desc: '그날의 PT 체조' },
             { id: 't_005_13', emoji: '🎲', name: '행정병의 주사위',         rarity: 'common',    reward: { coin: 80 },                desc: '심심해서 굴렸지' },
             { id: 't_005_14', emoji: '🥜', name: '마른 건빵',              rarity: 'common',    reward: { coin: 60 },                desc: '별사탕은 어디갔어' },
-            { id: 't_005_15', emoji: '📞', name: '부모 통화 메모지',        rarity: 'rare',      reward: { coin: 240, relic: 3 },     desc: '월요일 7시 엄마' },
             { id: 't_005_16', emoji: '📓', name: '고참의 이등병 일기',      rarity: 'rare',      reward: { coin: 300, relic: 3 },     desc: '그땐 그랬지...' },
             { id: 't_005_17', emoji: '📋', name: '휴가 D-100 카운트표',    rarity: 'rare',      reward: { coin: 280, relic: 3 },     desc: '전역까지의 영혼' },
             { id: 't_005_18', emoji: '🎤', name: 'PX 노래방 만점 메모',    rarity: 'epic',      reward: { coin: 850, relic: 8 },     desc: '전설의 100점 그곳' },
