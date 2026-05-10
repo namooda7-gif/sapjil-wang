@@ -925,10 +925,14 @@ export default class GameScene extends Phaser.Scene {
 
         const now = this.time.now;
 
-        // 콤보 판정 — 핫삽스 버프 활성 시 윈도우 1.5배 (잘 안 끊김)
-        const effComboWindow = (this.activeBuffs.combo > now)
-            ? this.comboWindow * DRINK_BONUS.combo
-            : this.comboWindow;
+        // ━━ 콤보 판정 (강화: 윈도우 보호 — 고콤보일수록 잘 안 끊김) ━━
+        // 기본 1500ms / 콤보 50+: ×1.33 (2000ms) / 콤보 100+: ×1.67 (2500ms)
+        // 핫삽스 버프(×1.5)와 max로 합성 → 둘 중 더 큰 윈도우 적용
+        let comboProtectMult = 1.0;
+        if (this.combo >= 100)      comboProtectMult = 1.67;
+        else if (this.combo >= 50)  comboProtectMult = 1.33;
+        const drinkComboMult = (this.activeBuffs.combo > now) ? DRINK_BONUS.combo : 1.0;
+        const effComboWindow = this.comboWindow * Math.max(comboProtectMult, drinkComboMult);
         if (now - this.lastDigTime < effComboWindow) {
             this.combo += 1;
         } else {
@@ -939,13 +943,14 @@ export default class GameScene extends Phaser.Scene {
         if (sapremeHit) this.combo += SAPREME_BONUS_COMBO_ADD;
         this.lastDigTime = now;
 
-        // ━━ 진행 카운트 멀티플라이어 (사용자 스펙) ━━
-        //   콤보:  10+ → 1.5x  /  50+ → 2.0x
+        // ━━ 진행 카운트 멀티플라이어 (강화: 100+ 단계 추가) ━━
+        //   콤보:  10+ → 1.5x  /  50+ → 2.0x  /  100+ → 3.0x (NEW)
         //   삽:    나무 1.0 / 철 1.5 / 강철 2.0 / 미스릴+ 2.5
         //   기본 1 × 콤보배율 × 삽배율 → 이번 탭의 카운트 가산값
         // 비정수 처리: digFraction에 누적 → floor만 digCount에 반영
         let digMult = 1.0;
-        if (this.combo >= 50)      digMult *= 2.0;
+        if (this.combo >= 100)     digMult *= 3.0;
+        else if (this.combo >= 50) digMult *= 2.0;
         else if (this.combo >= 10) digMult *= 1.5;
         const SHOVEL_DIG_MULT = [1.0, 1.5, 2.0, 2.5];
         const sLvl = Math.min(this.currencyManager.shovelLevel || 0, SHOVEL_DIG_MULT.length - 1);
@@ -1044,7 +1049,8 @@ export default class GameScene extends Phaser.Scene {
         // 기본 1~5 + 삽 레벨 보너스 + 콤보 10+ 시 1.5배
         // SOUL 10% 미만이면 효율 ×0.5 ('번아웃 직전 지침')
         let coinGain = Phaser.Math.Between(1, 5) + this.currencyManager.getShovelBonus();
-        if (this.combo >= 10) coinGain = Math.floor(coinGain * 1.5);
+        if (this.combo >= 100)     coinGain = Math.floor(coinGain * 2.0);   // 100+ NEW
+        else if (this.combo >= 10) coinGain = Math.floor(coinGain * 1.5);
         if (this.soulGauge < 10) coinGain = Math.max(1, Math.floor(coinGain * SOUL_BURNOUT_EFFICIENCY));
         // 삽카스 버프 활성 시 코인 +20%
         if (this.activeBuffs.coin > now) coinGain = Math.floor(coinGain * DRINK_BONUS.coin);
@@ -1054,30 +1060,68 @@ export default class GameScene extends Phaser.Scene {
         // 코인 획득 사운드 (매 탭마다 살짝 다른 피치)
         this.soundManager.playCoinSound();
 
-        // 콤보 보상
+        // ━━ 콤보 보상 (강화: 금괴 시각으로 모던화 + 단계 추가 + 다이아 강화) ━━
+        // 사장님 피드백: 유물조각 너무 올드 → 🪙 금괴 시각으로 변경 (실제 재화는 다이아삽)
+        // 단계: 50 / 75 / 100 / 150 / 200 — 후반으로 갈수록 묵직
         if (this.combo === 50) {
-            this.currencyManager.addRelic(1);
-            this.showFloatingText(x, y - 60, '🏺 +1 유물조각!', '#d2691e');
-        } else if (this.combo === 100) {
             this.currencyManager.addDiamond(1);
-            this.showFloatingText(x, y - 60, '💎 +1 다이아삽!', '#7df9ff');
+            this.showFloatingText(x, y - 60, '🪙 +1 금괴!', '#ffd700');
+        } else if (this.combo === 75) {
+            this.currencyManager.addDiamond(2);
+            this.showFloatingText(x, y - 60, '🪙 +2 금괴!', '#ffd700');
+        } else if (this.combo === 100) {
+            this.currencyManager.addDiamond(3);
+            this.showFloatingText(x, y - 60, '🪙 +3 금괴! 100 콤보!', '#ffd700');
+        } else if (this.combo === 150) {
+            this.currencyManager.addDiamond(5);
+            this.showFloatingText(x, y - 60, '🪙 +5 금괴! 150 콤보!', '#ffd700');
+        } else if (this.combo === 200) {
+            this.currencyManager.addDiamond(10);
+            this.showFloatingText(x, y - 60, '🪙 +10 금괴! 200 콤보 전설!', '#ffd700');
         }
 
         // 코인 획득 이펙트
         this.showFloatingText(x, y, `+${coinGain}`, '#ffd700');
 
-        // 콤보 표시
+        // ━━ 콤보 표시 (강화: 단계별 색상 + 100+ 글로우 + 펄스) ━━
+        // 2~49: 흰색 / 50~99: 빨강 / 100+: 황금 + setShadow 글로우 + scale 펄스
         if (this.combo >= 2) {
             this.comboText.setText(`COMBO x${this.combo}`);
             this.comboText.setAlpha(1);
             this.tweens.killTweensOf(this.comboText);
+
+            if (this.combo >= 100) {
+                // 황금 + 글로우 + 펄스 (전설)
+                this.comboText.setColor('#ffd700');
+                this.comboText.setShadow(0, 0, '#ffd700', 18, false, true);
+                this.comboText.setScale(1.0);
+                this.tweens.add({
+                    targets: this.comboText,
+                    scale: { from: 1.0, to: 1.25 },
+                    duration: 200, yoyo: true, repeat: 1, ease: 'Sine.inOut'
+                });
+            } else if (this.combo >= 50) {
+                // 빨강 (열정)
+                this.comboText.setColor('#ff4444');
+                this.comboText.setShadow(0, 0, '#ff0000', 10, false, true);
+                this.comboText.setScale(1.0);
+            } else {
+                // 흰색 (기본)
+                this.comboText.setColor('#ffffff');
+                this.comboText.setShadow(0, 0, '#000000', 0, false, false);
+                this.comboText.setScale(1.0);
+            }
+
             this.tweens.add({
                 targets: this.comboText, alpha: 0, duration: 800, delay: 600
             });
         }
 
-        // 콤보 단계 도달 시 사운드 (10 / 30 / 50 정확히 그 순간만)
-        if (this.combo === 10 || this.combo === 30 || this.combo === 50) {
+        // ━━ 콤보 단계 도달 시 사운드 (강화: 9단계로 확장, 정확히 그 순간만) ━━
+        // 10/20/30/40/50/75/100/150/200 — SoundManager.playComboSound 내부에서 단계별 다른 화음
+        if (this.combo === 10 || this.combo === 20 || this.combo === 30 || this.combo === 40 ||
+            this.combo === 50 || this.combo === 75 ||
+            this.combo === 100 || this.combo === 150 || this.combo === 200) {
             this.soundManager.playComboSound(this.combo);
         }
 
@@ -1437,11 +1481,12 @@ export default class GameScene extends Phaser.Scene {
         // 컨테이너 - 아이콘 + 이름 텍스트가 함께 등장/유지/비행
         const container = this.add.container(startX, startY).setDepth(50);
 
-        // 아이콘 (반지름 80, 이모지 100px = 이전 대비 약 3배)
+        // 아이콘 (반지름 65 = 직경 130, 이미지와 동일 크기 → 원이 외곽 액자 역할만)
+        // 사장님 피드백: 보물 이미지가 원보다 작아 도드라지지 않음 → 원 80→65, stroke 6→4 가늘게
         // 텍스처가 있으면 image, 없으면 emoji fallback (treasure.emoji or 기본 🏺)
         const iconRelX = -90;                 // 컨테이너 안에서 아이콘 중심 X
-        const iconBg = this.add.circle(iconRelX, 0, 80, style.int, 1)
-            .setStrokeStyle(6, 0xffffff);
+        const iconBg = this.add.circle(iconRelX, 0, 65, style.int, 1)
+            .setStrokeStyle(4, 0xffffff);
 
         let iconChild;
         if (this.textures.exists(treasure.id)) {
@@ -1831,8 +1876,9 @@ export default class GameScene extends Phaser.Scene {
 
         const c = this.add.container(startX, startY).setDepth(15);
 
-        // 외곽 황금 글로우 (펄스용 - 가장 뒤) — 3배 확대 (70 → 210)
-        const glow = this.add.circle(0, 0, 210, 0xffd700, 0.35);
+        // 외곽 빨강 글로우 존 (펄스용 - 가장 뒤) — 3배 확대 (70 → 210)
+        // 사장님 피드백: 노란 존은 뭔지 인식 안 됨 → 빨간 박스와 같은 톤으로 통일
+        const glow = this.add.circle(0, 0, 210, 0xc8102e, 0.35);
 
         // Supreme 미감 패러디 - 빨간 박스 로고 (상단) — 3배 확대 (110×30 → 330×90, y=-42 → -126)
         const box = this.add.rectangle(0, -126, 330, 90, 0xc8102e)
@@ -1849,8 +1895,9 @@ export default class GameScene extends Phaser.Scene {
             strokeThickness: 9
         }).setOrigin(0.5);
 
-        // LIMITED DROP 라벨 (하단) — 3배 확대 (13 → 39, y=48 → 144)
-        const limitedText = this.add.text(0, 144, 'LIMITED DROP', {
+        // 아이템 명칭 라벨 (하단) — 3배 확대 (13 → 39, y=48 → 144)
+        // 사장님 피드백: "이게 뭔지 모르겠다" → 명확하게 "SAPREME® 곡괭이"로 표기
+        const limitedText = this.add.text(0, 144, 'SAPREME® 곡괭이', {
             font: 'bold 39px sans-serif',
             color: '#ffd700',
             stroke: '#000', strokeThickness: 6
@@ -3412,36 +3459,39 @@ export default class GameScene extends Phaser.Scene {
 
         const container = this.add.container(cx, cy).setDepth(45);
 
-        // 배경 원 (반투명 검정)
-        const bgCircle = this.add.circle(0, 0, 90, 0x000000, 0.55)
-            .setStrokeStyle(5, def.tint, 1);
+        // ━━ 사장님 피드백: 보물과 장애물이 둘 다 원이라 구분 안 됨 ━━
+        //   → 장애물은 배경 원 제거, 이모지를 더 크게(110→160), 외곽에 def.tint 글로우
+        //   → 결과: 보물=원 안 이미지 / 장애물=글로우 도는 큰 이모지 (시각 분리)
 
-        // 장애물 이모지 (큼지막하게)
+        // 장애물 이모지 (110→160, 외곽 글로우 효과)
         const emoji = this.add.text(0, -10, def.emoji, {
-            font: '110px sans-serif'
+            font: '160px sans-serif'
         }).setOrigin(0.5);
+        // def.tint 색으로 외곽에 빛나는 글로우 (blur 25, fill에만 그림자)
+        const tintHex = '#' + def.tint.toString(16).padStart(6, '0');
+        emoji.setShadow(0, 0, tintHex, 25, false, true);
 
-        // 이름 라벨
-        const nameLabel = this.add.text(0, 75, def.name, {
+        // 이름 라벨 (이모지 확대분만큼 +20px 내림: y=75→95)
+        const nameLabel = this.add.text(0, 95, def.name, {
             font: 'bold 22px sans-serif',
             color: '#ffffff', stroke: '#000', strokeThickness: 4
         }).setOrigin(0.5);
 
-        // HP 바 (탭 진행도)
+        // HP 바 (탭 진행도) — y=110→130
         const hpBarW = 160;
         const hpBarH = 12;
-        const hpBarBg = this.add.rectangle(0, 110, hpBarW, hpBarH, 0x333333, 1)
+        const hpBarBg = this.add.rectangle(0, 130, hpBarW, hpBarH, 0x333333, 1)
             .setStrokeStyle(2, 0xffffff);
-        const hpBar = this.add.rectangle(-hpBarW / 2, 110, hpBarW, hpBarH, 0xffd700, 1)
+        const hpBar = this.add.rectangle(-hpBarW / 2, 130, hpBarW, hpBarH, 0xffd700, 1)
             .setOrigin(0, 0.5);
 
-        // 안내 텍스트 (탭 X번 더)
-        const tapHint = this.add.text(0, 138, `👆 탭 ${def.tapsRequired}회!`, {
+        // 안내 텍스트 (탭 X번 더) — y=138→158
+        const tapHint = this.add.text(0, 158, `👆 탭 ${def.tapsRequired}회!`, {
             font: 'bold 20px sans-serif',
             color: '#ffd700', stroke: '#000', strokeThickness: 3
         }).setOrigin(0.5);
 
-        container.add([bgCircle, emoji, nameLabel, hpBarBg, hpBar, tapHint]);
+        container.add([emoji, nameLabel, hpBarBg, hpBar, tapHint]);
 
         // 등장 애니 (위에서 떨어짐 + 스케일 펑)
         container.y = -100;

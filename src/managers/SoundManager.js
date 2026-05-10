@@ -453,30 +453,90 @@ export default class SoundManager {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 5) 콤보 달성 - 콤보 단계별 점점 화려
+    // 5) 콤보 달성 - 콤보 단계별 점점 화려 (강화: 200 단계까지)
+    //   200 → 7음 황금 팡파르 + sub-boom (전설 도달)
+    //   150 → 6음 화려한 트릴
+    //   100 → 5음 상승 화음 + chime (마일스톤)
+    //   75  → 4음 + 살짝 더 화려
+    //   50  → 4음 "삐삐삐빅" (기존)
+    //   40  → 3음 강조
+    //   30  → 3음 "삐삐빅" (기존)
+    //   20  → 2음 강조
+    //   10  → 2음 "삐빅" (기존)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     playComboSound(comboCount) {
         if (sfxState.muted) return;
+
+        if (comboCount >= 200) {
+            // 7음 황금 팡파르 + 깊은 sub-boom (전설 200콤보)
+            const notes = [523, 659, 784, 1047, 1319, 1568, 2093];   // C5→C7 상승
+            notes.forEach((f, i) => {
+                tone({ freq: f, duration: 0.10, type: 'square',   volume: 0.85, startAt: i * 0.05 });
+                tone({ freq: f * 1.5, duration: 0.10, type: 'sine', volume: 0.4,  startAt: i * 0.05 });   // 5도 화음
+            });
+            // 마지막 sub-boom (위엄)
+            tone({ freq: 80, freqEnd: 30, duration: 0.50, type: 'sine', volume: 0.7, startAt: 0.35 });
+            return;
+        }
+        if (comboCount >= 150) {
+            // 6음 화려한 트릴
+            const notes = [659, 880, 1100, 1319, 1760, 2200];
+            notes.forEach((f, i) => {
+                tone({ freq: f, duration: 0.08, type: 'square', volume: 0.75, startAt: i * 0.05 });
+            });
+            tone({ freq: 100, freqEnd: 50, duration: 0.30, type: 'sine', volume: 0.5, startAt: 0.30 });
+            return;
+        }
+        if (comboCount >= 100) {
+            // 5음 상승 화음 + chime (100 마일스톤)
+            const notes = [523, 659, 784, 1047, 1319];   // C5→E6 상승
+            notes.forEach((f, i) => {
+                tone({ freq: f, duration: 0.09, type: 'square', volume: 0.75, startAt: i * 0.05 });
+                tone({ freq: f * 2, duration: 0.05, type: 'sine', volume: 0.3, startAt: i * 0.05 + 0.02 });
+            });
+            return;
+        }
+        if (comboCount >= 75) {
+            // 4음 + 살짝 더 화려 (5도 화음)
+            const freqs = [800, 1000, 1300, 1700];
+            freqs.forEach((f, i) => {
+                tone({ freq: f, duration: 0.08, type: 'square', volume: 0.7, startAt: i * 0.06 });
+                tone({ freq: f * 1.5, duration: 0.06, type: 'sine', volume: 0.25, startAt: i * 0.06 });
+            });
+            return;
+        }
         if (comboCount >= 50) {
-            // 4음 "삐삐삐빅!" 볼륨 크게
+            // 4음 "삐삐삐빅!" (기존)
             const freqs = [800, 1000, 1200, 1500];
             freqs.forEach((f, i) => {
-                tone({
-                    freq: f, duration: 0.07, type: 'square',
-                    volume: 0.7, startAt: i * 0.06
-                });
+                tone({ freq: f, duration: 0.07, type: 'square', volume: 0.7, startAt: i * 0.06 });
             });
-        } else if (comboCount >= 30) {
-            // 3음 "삐삐빅"
+            return;
+        }
+        if (comboCount >= 40) {
+            // 3음 강조 (50 직전 빌드업)
+            const freqs = [700, 950, 1200];
+            freqs.forEach((f, i) => {
+                tone({ freq: f, duration: 0.07, type: 'square', volume: 0.6, startAt: i * 0.06 });
+            });
+            return;
+        }
+        if (comboCount >= 30) {
+            // 3음 "삐삐빅" (기존)
             const freqs = [800, 1000, 1300];
             freqs.forEach((f, i) => {
-                tone({
-                    freq: f, duration: 0.07, type: 'square',
-                    volume: 0.5, startAt: i * 0.06
-                });
+                tone({ freq: f, duration: 0.07, type: 'square', volume: 0.5, startAt: i * 0.06 });
             });
-        } else if (comboCount >= 10) {
-            // 2음 "삐빅"
+            return;
+        }
+        if (comboCount >= 20) {
+            // 2음 강조 (30 직전 빌드업)
+            tone({ freq: 700, duration: 0.07, type: 'square', volume: 0.45 });
+            tone({ freq: 950, duration: 0.07, type: 'square', volume: 0.45, startAt: 0.06 });
+            return;
+        }
+        if (comboCount >= 10) {
+            // 2음 "삐빅" (기존)
             tone({ freq: 800,  duration: 0.07, type: 'square', volume: 0.4 });
             tone({ freq: 1100, duration: 0.07, type: 'square', volume: 0.4, startAt: 0.06 });
         }
@@ -708,19 +768,34 @@ export default class SoundManager {
         noise({ duration: 0.05, volume: 0.7 });
     }
 
-    // 11) 장애물 파괴 완료 - "콰광!" + 보너스 chime (사용자: 더 거칠게)
+    // 11) 장애물 파괴 완료 - "빡! 쫙!! 콰광!" 강력 타격 (사장님 요청: 빡쫙 강력하게)
+    //   - "빡" 초기 어택: 짧고 강한 square + 동시 white noise burst (한 방 임팩트)
+    //   - "쫙" 균열: 두꺼운 sawtooth 디센드 + 거친 노이즈 (갈라지는 소리)
+    //   - sub-boom: 깊은 저음 (땅 흔들림)
+    //   - 잔향 노이즈: 잔해 흩어짐
+    //   - 보너스 chime: 보물 확률 +20% 알림 (마지막)
     playObstacleBreakSound() {
         if (sfxState.muted) return;
-        // 강력 파괴 임팩트 (sawtooth 디센드 + sub-boom)
-        tone({ freq: 250, freqEnd: 60,  duration: 0.30, type: 'sawtooth', volume: 1.0 });
-        tone({ freq: 60,  freqEnd: 25,  duration: 0.40, type: 'sine',     volume: 0.85 });
-        // 두꺼운 거친 노이즈
-        noise({ duration: 0.32, volume: 1.0 });
-        noise({ duration: 0.18, volume: 0.7, startAt: 0.10 });
-        // 보너스 chime (보물 확률 +20% 알림)
-        tone({ freq: 800,  duration: 0.10, type: 'sine', volume: 0.5, startAt: 0.30 });
-        tone({ freq: 1200, duration: 0.18, type: 'sine', volume: 0.55, startAt: 0.40 });
-        tone({ freq: 1600, duration: 0.22, type: 'sine', volume: 0.55, startAt: 0.50 });
+
+        // ━━ "빡!" 초기 어택 (가장 강한 한 방, 0~60ms) ━━
+        tone({ freq: 1200, freqEnd: 300, duration: 0.06, type: 'square',   volume: 1.0 });
+        noise({ duration: 0.06, volume: 1.0 });
+
+        // ━━ "쫙!!" 균열 (40~240ms) ━━
+        tone({ freq: 500, freqEnd: 80,   duration: 0.22, type: 'sawtooth', volume: 1.0,  startAt: 0.04 });
+        noise({ duration: 0.20, volume: 0.95, startAt: 0.05 });
+
+        // ━━ sub-boom (땅 흔들림, 20~520ms) ━━
+        tone({ freq: 80,  freqEnd: 25,   duration: 0.50, type: 'sine',     volume: 1.0,  startAt: 0.02 });
+        tone({ freq: 50,  freqEnd: 20,   duration: 0.55, type: 'triangle', volume: 0.7,  startAt: 0.04 });
+
+        // ━━ 잔향 노이즈 (잔해 흩어짐, 220~440ms) ━━
+        noise({ duration: 0.22, volume: 0.6,  startAt: 0.22 });
+
+        // ━━ 보너스 chime (보물 확률 +20% 알림, 440ms~) ━━
+        tone({ freq: 800,  duration: 0.10, type: 'sine', volume: 0.5,  startAt: 0.44 });
+        tone({ freq: 1200, duration: 0.18, type: 'sine', volume: 0.55, startAt: 0.54 });
+        tone({ freq: 1600, duration: 0.22, type: 'sine', volume: 0.55, startAt: 0.64 });
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
