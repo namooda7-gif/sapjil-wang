@@ -475,6 +475,11 @@ export default class GameScene extends Phaser.Scene {
         const selectedId = this.currencyManager.selectedCharacterId || 'char_001';
         this.characterId = this.textures.exists(`${selectedId}_idle`) ? selectedId : 'char_001';
 
+        // ━━ 캐릭터 lazy load (BootScene은 char_001 8장 + char_002~006 idle만 로드) ━━
+        // 게임 진입 시 currentCharacter의 나머지 7 상태(dig/combo/surprise/clear/tired/panic/dig_hard)
+        // 백그라운드 로드. 1~2초 안에 완료. 그 동안엔 idle 유지(setCharacterState textures.exists 체크 폴백)
+        this.lazyLoadCharacterStates(this.characterId);
+
         // 진행 중인 레이어 — CurrencyManager에서 가져와 이어가기 보장
         // 캐릭터 변경 / 앱 재시작 무관하게 마지막 레이어부터 재개
         this.layerOrder = this.currencyManager.currentLayer || 1;
@@ -3503,6 +3508,24 @@ export default class GameScene extends Phaser.Scene {
         if (this.soulGauge < 40) return 'tired';   // SOUL 40% 미만 = 지침/번아웃 단계
         if (this.combo >= 10) return 'combo';
         return 'idle';
+    }
+
+    // 현재 캐릭터의 7 상태(dig/combo/surprise/clear/tired/panic/dig_hard) 백그라운드 로드
+    //   - char_001은 BootScene에서 다 로드 → missing 0장 → 즉시 return
+    //   - char_002~006은 idle만 로드 상태 → 7장 lazy. 완료 시 setCharacterState가 자연스럽게 사용
+    //   - 진행 중 setCharacterState 호출 시 미로드 상태면 textures.exists 체크로 noop (idle 유지)
+    lazyLoadCharacterStates(charId) {
+        if (!charId) return;
+        const states = ['dig', 'combo', 'surprise', 'clear', 'tired', 'panic', 'dig_hard'];
+        const missing = states.filter(s => !this.textures.exists(`${charId}_${s}`));
+        if (missing.length === 0) return;
+        missing.forEach(s => {
+            this.load.image(`${charId}_${s}`, `assets/characters/${charId}_${s}.png`);
+        });
+        // load 진행 중인지 확인 (이미 진행 중이면 자동으로 큐에 추가됨)
+        if (!this.load.isLoading()) {
+            this.load.start();
+        }
     }
 
     // 캐릭터 텍스처 교체 (현재와 같으면 무시 → 불필요한 재할당 방지)

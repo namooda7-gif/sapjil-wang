@@ -46,16 +46,13 @@ export default class BootScene extends Phaser.Scene {
         this.load.image('char_001_panic',    'assets/characters/char_001_panic.png');
         this.load.image('char_001_dig_hard', 'assets/characters/char_001_dig_hard.png');
 
-        // ━━━ 무료 캐릭터 char_002~006 (각 8종 상태) — 2026-05-10 자산 풀세트 도착 ━━━
-        // char_002 굴착용 / char_003 김파순 / char_004 이땅녀 / char_005 굴팔이 / char_006 금속탐지 김씨
-        // 키 규칙: ${characterId}_${state}, state ∈ {idle/dig/combo/surprise/clear/tired/panic/dig_hard}
-        // 미로드 시 GameScene.setCharacterState의 textures.exists 체크로 안전 폴백
-        const FREE_CHAR_STATES = ['idle', 'dig', 'combo', 'surprise', 'clear', 'tired', 'panic', 'dig_hard'];
+        // ━━━ 무료 캐릭터 char_002~006 idle만 부팅 시 로드 (lazy load 최적화) ━━━
+        // 사장님 보고: 로딩 길어 첫 탭 안 눌림 → 부팅 자산 96MB(48장) → 28MB(14장)로 70% 감소
+        // 나머지 7 상태(dig/combo/surprise/clear/tired/panic/dig_hard)는 GameScene 진입 시 lazy load
+        // CharacterScene 카드 미리보기는 idle만 쓰니 부팅 시 idle만 있으면 충분
         for (let i = 2; i <= 6; i++) {
             const charId = `char_00${i}`;
-            FREE_CHAR_STATES.forEach(state => {
-                this.load.image(`${charId}_${state}`, `assets/characters/${charId}_${state}.png`);
-            });
+            this.load.image(`${charId}_idle`, `assets/characters/${charId}_idle.png`);
         }
 
         // ━━━ 에너지 드링크 PNG 4종 (이모지 → PNG 교체, 인지도 강화) ━━━
