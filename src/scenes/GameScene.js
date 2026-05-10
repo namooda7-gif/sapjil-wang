@@ -96,13 +96,13 @@ const HUD_BOTTOM_MARGIN = 100;
 // 구덩이 (hole.jpeg) — 높이는 지표면~발끝 동적 계산, 최대 제한 없음
 const HOLE_TAPS_TO_MAX       = 100;      // (현재 미사용, 향후 이징용으로 보존)
 const HOLE_WIDTH_RATIO       = 0.85;     // 화면 폭 대비 구덩이 너비 (0.75 → 0.85: 좌우도 더 넓게)
-const HOLE_MIN_HEIGHT        = 80;       // 최소 높이
+const HOLE_MIN_HEIGHT        = 30;       // 최소 높이 (80 → 30: 얕은 단계 시각 어긋남 최소)
 const HOLE_MAX_HEIGHT        = 120;      // (현재 미사용)
 // 사용자 요청: 굴 바닥이 캐릭터 발과 거의 비슷한 높이여야 함 (이전 35 → 0)
 // hole.png는 origin (0.5, 1.0)이라 holeImage.y = character.y면 이미지 하단=발 라인
 const HOLE_Y_OFFSET          = 0;        // 캐릭터 발 라인에 굴 바닥 정렬
-const HOLE_PADDING_FACTOR    = 1.10;     // 1.25 너무 위 / 1.0 너무 아래 — 0.10 padding 가정
-                                         // 사장님 검증 후 1.05~1.20 사이 미세 조정 가능
+// hole.png 실측: 768×1376, 상단 padding 0.107, 하단 0.109 → PADDING_FACTOR = 1/(1-0.216) = 1.275
+const HOLE_PADDING_FACTOR    = 1.275;
 
 // ━━ 흙더미 시스템 (mound_right.png 이미지) ━━
 //   - 오른쪽용 1장만 로드, 왼쪽은 flipX로 좌우 반전 재활용
@@ -2205,11 +2205,11 @@ export default class GameScene extends Phaser.Scene {
         const startY = -110;
         const endX   = this.character.x;
         const endY   = this.character.y - this.character.displayHeight * 0.6;
-        const FALL_MS = 1700;   // 회오리감 위해 약간 길게 (1500 → 1700)
+        const FALL_MS = 2000;   // 회오리 더 명확하게 (1700 → 2000)
 
-        // 회오리 궤적 파라미터 — 사장님 요청 "원/회오리처럼 떨어지고"
-        const SWAY_AMPLITUDE = 220;   // 진폭 강화 (140 → 220, 캐릭터 옆 충분히 넘어감)
-        const SWAY_CYCLES    = 3.5;   // 회전 수 강화 (2.5 → 3.5)
+        // 회오리 궤적 파라미터 — 사장님 요청 "회오리 좀 더"
+        const SWAY_AMPLITUDE = 280;   // 진폭 강화 (220 → 280, 캐릭터 옆 명확히 넘어감)
+        const SWAY_CYCLES    = 5.0;   // 회전 수 강화 (3.5 → 5.0, 회오리 명확)
 
         const container = this.add.container(startX, startY).setDepth(46);
 
@@ -2375,6 +2375,37 @@ export default class GameScene extends Phaser.Scene {
 
         // 화면 가장자리 글로우 갱신 (가장 화려한 활성 버프 색)
         this.refreshBuffEdgeGlow();
+
+        // 캐릭터 뒤 불꽃 폭발 — 사장님 요청 "드링크 내려온 후 캐릭터 뒤에 불꽃"
+        this.spawnCharacterBackFire();
+    }
+
+    // 드링크 마신 직후 캐릭터 뒤 불꽃 폭발 (1.5초 활성)
+    //   depth 9: 캐릭터(10) 뒤로 → 캐릭터 실루엣 살리면서 불꽃 후광 효과
+    //   기존 __fireParticle 텍스처 재사용
+    spawnCharacterBackFire() {
+        if (!this.character) return;
+        const cx = this.character.x;
+        const cy = this.character.y - this.character.displayHeight * 0.5;  // 캐릭터 가운데
+
+        const emitter = this.add.particles(cx, cy, '__fireParticle', {
+            tint: [0xff3030, 0xff8a00, 0xffd700, 0xffffff],
+            lifespan: 900,
+            speedY: { min: -180, max: -60 },         // 위로 솟구침
+            speedX: { min: -160, max: 160 },         // 좌우 사방
+            scale: { start: 2.0, end: 0 },
+            alpha: { start: 1.0, end: 0 },
+            frequency: 25,
+            quantity: 3,
+            blendMode: 'ADD'                          // 화려한 빛 합성
+        }).setDepth(9);
+
+        this.time.delayedCall(1500, () => {
+            if (emitter && emitter.stop) emitter.stop();
+            this.time.delayedCall(900, () => {
+                if (emitter && emitter.scene) emitter.destroy();
+            });
+        });
     }
 
     // 가장자리 글로우 — 활성 버프 동안 화면 테두리에 등급 색 옅게
@@ -3033,27 +3064,10 @@ export default class GameScene extends Phaser.Scene {
     //   surfaceY 화면 위로 갔으면(=충분히 깊음) 화면 전체 underground
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     drawUndergroundOverlay() {
-        if (!this.undergroundOverlay) return;
-        this.undergroundOverlay.clear();
-        if (!this.bgImage) return;
-
-        // 사장님 보고: 6레벨 진입 시 배경 회색 → 처음 진입 단계엔 비활성화
-        // LOOP_START_ROW(=1300) 진입 후만 활성화 — 그 전엔 배경 layer_NNN_bg 그대로 노출
-        if ((this.virtualScrollY || 0) < LOOP_START_ROW) return;
-
-        const { width, height } = this.cameras.main;
-        const tileScale = this.bgImage.tileScaleY || 1;
-        const surfaceY = (SURFACE_TEXTURE_Y - (this.virtualScrollY || 0)) * tileScale;
-
-        // 지하 단계 진입 후 — wrap 시 지상 깜빡 차단용. surfaceY 아래만 어두운 흙으로 덮음
-        const darkSoil = (this.currentDirtPalette && this.currentDirtPalette[2]) || 0x2a1a0a;
-        this.undergroundOverlay.fillStyle(darkSoil, 1);
-
-        if (surfaceY <= 0) {
-            this.undergroundOverlay.fillRect(0, 0, width, height);
-        } else if (surfaceY < height) {
-            this.undergroundOverlay.fillRect(0, surfaceY, width, height - surfaceY);
-        }
+        // 비활성화 — 사장님 보고: 6레벨 파내려가다 지하 이미지 사라지고 회색
+        // 원인: overlay가 layer_NNN_bg의 지하 부분을 어두운 흙으로 덮어 시각 가림
+        // wrap 시 지상 깜빡 문제는 ensureLoopTexture(B-2)가 처리해야 — overlay 우회 X
+        if (this.undergroundOverlay) this.undergroundOverlay.clear();
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3710,6 +3724,13 @@ export default class GameScene extends Phaser.Scene {
     //   surprise/panic 등 어떤 transient 중이라도 탭하면 즉시 dig 텍스처로 전환
     playDigAnimation() {
         if (this.treasurePopupActive || this.clearActive) return;
+
+        // 코피(nosebleed) 텍스처 보호 — triggerNosebleed가 직전에 호출됐으면 그 임팩트 덮지 않음
+        // panicRevertTimer가 nosebleed 가드용으로 활성 상태 → dig_hard로 안 덮음
+        // (사장님 보고: 콤보 100 도달해도 코피 안 보임 → playDigAnimation이 즉시 덮어 발생)
+        if (this.character && this.character.texture && this.character.texture.key === `${this.characterId}_nosebleed`) {
+            return;
+        }
 
         // 진행 중인 transient(surprise/panic)는 모두 취소하고 dig로 전환
         this.cancelSurpriseRevert();

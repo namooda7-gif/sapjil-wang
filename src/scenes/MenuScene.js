@@ -45,11 +45,15 @@ export default class MenuScene extends Phaser.Scene {
         }
         this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.45);
 
-        // ━━━━ #1 발 밑 보물 티징 (화면 하단 단일 보물 + 황금 글로우) ━━━━
-        this.createTreasureTease(width, height);
-
-        // ━━━━ #5 흙먼지 미세 파티클 (저사양 친화) ━━━━
-        this.createDustParticles(width, height);
+        // ━━━━ 무거운 파티클 시스템은 250ms 지연 → 시작 버튼 input 즉시 받음 ━━━━
+        // 사장님 보고: 로딩 직후 시작 버튼 무반응, 시간 지나면 부분 작동 = 메인 스레드 블록
+        // 파티클 emitter 2개(treasureTease 글로우, dust)는 무거워 input 처리 지연 유발
+        // 250ms 후 백그라운드 추가 (시각 효과 살짝 늦지만 input 우선 보장)
+        this.time.delayedCall(250, () => {
+            if (!this.scene || !this.scene.isActive('MenuScene')) return;
+            this.createTreasureTease(width, height);
+            this.createDustParticles(width, height);
+        });
 
         // ━━━━ 사용자 상태 (신규 vs 재진입) ━━━━
         this.currencyManager = new CurrencyManager();
@@ -78,7 +82,11 @@ export default class MenuScene extends Phaser.Scene {
         //   - createTitleSparkles: 타이틀 주변 황금 별 파티클 지속 발사
         //   "번쩍번쩍"이지 "정신없음"은 아님 — 효과 2개 이내로 절제
         this.cameras.main.fadeFrom(600, 255, 215, 0, true);
-        this.createTitleSparkles(width / 2, height * 0.25);
+        // sparkle 파티클도 지연 (무거운 작업 → input 우선 보장)
+        this.time.delayedCall(250, () => {
+            if (!this.scene || !this.scene.isActive('MenuScene')) return;
+            this.createTitleSparkles(width / 2, height * 0.25);
+        });
 
         // ━━━━ BGM 시스템 + 오프라인 보상 ━━━━
         this.soundManager = new SoundManager(this);
