@@ -46,6 +46,18 @@ export default class BootScene extends Phaser.Scene {
         this.load.image('char_001_panic',    'assets/characters/char_001_panic.png');
         this.load.image('char_001_dig_hard', 'assets/characters/char_001_dig_hard.png');
 
+        // ━━━ 무료 캐릭터 char_002~006 (각 8종 상태) — 2026-05-10 자산 풀세트 도착 ━━━
+        // char_002 굴착용 / char_003 김파순 / char_004 이땅녀 / char_005 굴팔이 / char_006 금속탐지 김씨
+        // 키 규칙: ${characterId}_${state}, state ∈ {idle/dig/combo/surprise/clear/tired/panic/dig_hard}
+        // 미로드 시 GameScene.setCharacterState의 textures.exists 체크로 안전 폴백
+        const FREE_CHAR_STATES = ['idle', 'dig', 'combo', 'surprise', 'clear', 'tired', 'panic', 'dig_hard'];
+        for (let i = 2; i <= 6; i++) {
+            const charId = `char_00${i}`;
+            FREE_CHAR_STATES.forEach(state => {
+                this.load.image(`${charId}_${state}`, `assets/characters/${charId}_${state}.png`);
+            });
+        }
+
         // ━━━ 흙더미 이미지 (오른쪽용 1장 → 왼쪽은 flipX로 재활용) ━━━
         this.load.image('mound_right', 'assets/mound_right.png');
 
@@ -82,7 +94,7 @@ export default class BootScene extends Phaser.Scene {
             }
         });
 
-        // TODO: 다른 캐릭터(char_002~030), 효과음 (현재 SFX는 Web Audio API로 합성됨)
+        // TODO: 유료 캐릭터 char_007~030, 효과음 (현재 SFX는 Web Audio API로 합성됨)
 
         // ━━━ 보물 이미지 (기존 42종 + 추가 6종 = 48종) ━━━
         // 파일 규칙: t_LLL_NN.png
