@@ -350,7 +350,13 @@ export default class MenuScene extends Phaser.Scene {
         //   재진입 유저(메인 화면 익숙)만 캐릭터 라인 순환 인터랙션 활성화.
         if (this.isFirstTime) return;
 
-        char.setInteractive({ useHandCursor: true });
+        // 사장님 보고: 시작 버튼 첫 탭 안 눌림 매번 발생
+        // 추가 보강: 재진입에서도 캐릭터 setInteractive를 1.5초 지연 — 시작 버튼 첫 탭 우선 보장
+        // 1.5초 후 캐릭터 라인 순환 활성화. 그동안엔 캐릭터 클릭 무시
+        this.time.delayedCall(1500, () => {
+            if (!char || !char.scene) return;
+            char.setInteractive({ useHandCursor: true });
+        });
 
         // 터치 핸들러
         char.on('pointerdown', () => {
@@ -469,7 +475,7 @@ export default class MenuScene extends Phaser.Scene {
         const container = this.add.container(x, y).setDepth(50);
         const radius = 18;
         const SHADOW_OFFSET = 8;
-        const HIT_PAD = 30;   // 히트영역 ±30px 확장 (이전 18 → 30, 손가락 빗나감 더 관대)
+        const HIT_PAD = 60;   // 히트영역 ±60px 확장 — 사장님 보고 "여전히 안 눌림" 추가 보강
 
         // 그림자판 (어두운 황토)
         const shadow = this.add.graphics();

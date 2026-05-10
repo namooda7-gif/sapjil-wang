@@ -73,6 +73,137 @@ export default class CharacterScene extends Phaser.Scene {
             this.formatCurrency(),
             { font: 'bold 26px sans-serif', color: '#ffffff', stroke: '#000', strokeThickness: 4 }
         ).setOrigin(0.5);
+
+        // 🔄 처음부터 다시 — 우상단 작은 원형 버튼
+        // 사장님 요청: 캐릭터 선택과 별개로 진행 리셋 옵션
+        this.createResetButton(width - 55, 65);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 🔄 처음부터 다시 시작 (우상단)
+    //   누르면 confirm 모달 → "예" 시 currentLayer = 1 리셋
+    //   현재 캐릭터 선택은 그대로 유지
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createResetButton(x, y) {
+        this.add.circle(x, y, 35, 0x000000, 0.75)
+            .setStrokeStyle(3, 0xffd700).setDepth(50);
+        const btn = this.add.text(x, y, '🔄', { font: '32px sans-serif' })
+            .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true });
+
+        // 라벨 (버튼 아래 작은 글자)
+        this.add.text(x, y + 50, '처음부터', {
+            font: 'bold 16px sans-serif',
+            color: '#ffd700',
+            stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5).setDepth(50);
+
+        const HIT_PAD = 15;
+        const hitZone = this.add.zone(x, y, 70 + HIT_PAD * 2, 70 + HIT_PAD * 2)
+            .setInteractive({ useHandCursor: true }).setDepth(52);
+        hitZone.on('pointerdown', () => btn.setAlpha(0.6));
+        const restore = () => btn.setAlpha(1);
+        hitZone.on('pointerout', restore);
+        hitZone.on('pointerupoutside', restore);
+        hitZone.on('pointerup', () => {
+            restore();
+            this.showResetConfirm();
+        });
+    }
+
+    // 처음부터 다시 — confirm 모달 (실수 방지)
+    showResetConfirm() {
+        const { width, height } = this.cameras.main;
+        const cm = this.currencyManager;
+        const currentLayer = cm.currentLayer || 1;
+
+        // 어두운 오버레이 (카드 외만 덮음 — 외곽 누르면 닫힘 단순화 X, 명시적 버튼만 받음)
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.75)
+            .setInteractive().setDepth(150);
+
+        // 카드
+        const cardW = 540, cardH = 320;
+        const card = this.add.container(width / 2, height / 2).setDepth(151);
+        const cardBg = this.add.rectangle(0, 0, cardW, cardH, 0x2a1a0a, 1)
+            .setStrokeStyle(5, 0xffd700);
+        const title = this.add.text(0, -110, '🔄 처음부터 다시?', {
+            font: 'bold 36px sans-serif', color: '#ffd700',
+            stroke: '#000', strokeThickness: 4
+        }).setOrigin(0.5);
+        const msg1 = this.add.text(0, -50, `현재 진행: Layer ${currentLayer}`, {
+            font: '24px sans-serif', color: '#ffffff'
+        }).setOrigin(0.5);
+        const msg2 = this.add.text(0, -10, '진행 상태가 Layer 1로 리셋됩니다.', {
+            font: '20px sans-serif', color: '#cccccc'
+        }).setOrigin(0.5);
+        const msg3 = this.add.text(0, 25, '(코인/캐릭터/보물은 유지)', {
+            font: 'italic 18px sans-serif', color: '#888888'
+        }).setOrigin(0.5);
+
+        card.add([cardBg, title, msg1, msg2, msg3]);
+
+        // 닫기/확인 (확인 후 단일 처리 가드)
+        let closing = false;
+        const close = () => {
+            if (closing) return;
+            closing = true;
+            this.tweens.add({
+                targets: [card, overlay], alpha: 0, scale: 0.9,
+                duration: 220,
+                onComplete: () => { card.destroy(); overlay.destroy(); }
+            });
+        };
+
+        // 외곽 click → 닫기 (취소)
+        overlay.on('pointerdown', close);
+
+        // 모달 내부 버튼 — 카드 컨테이너 자식으로 추가 (depth 자동 상속)
+        const makeModalBtn = (relX, relY, w, h, label, fill, textColor, onClick) => {
+            const btnContainer = this.add.container(relX, relY);
+            const bg = this.add.graphics();
+            bg.fillStyle(fill, 1);
+            bg.fillRoundedRect(-w / 2, -h / 2, w, h, 12);
+            bg.lineStyle(2, 0x000000, 1);
+            bg.strokeRoundedRect(-w / 2, -h / 2, w, h, 12);
+            const txt = this.add.text(0, 0, label, {
+                font: 'bold 22px sans-serif', color: textColor
+            }).setOrigin(0.5);
+            btnContainer.add([bg, txt]);
+
+            // hit zone (카드 좌표계 — 카드 위치 보정 위해 absolute zone)
+            const HIT_PAD = 12;
+            const absX = width / 2 + relX;
+            const absY = height / 2 + relY;
+            const hitZone = this.add.zone(absX, absY, w + HIT_PAD * 2, h + HIT_PAD * 2)
+                .setInteractive({ useHandCursor: true }).setDepth(152);
+            hitZone.on('pointerdown', () => btnContainer.setScale(0.96));
+            const r = () => btnContainer.setScale(1);
+            hitZone.on('pointerout', r);
+            hitZone.on('pointerupoutside', r);
+            hitZone.on('pointerup', () => {
+                r();
+                onClick();
+                if (hitZone && hitZone.scene) hitZone.destroy();
+            });
+            // 카드 닫힐 때 hit zone도 같이 정리
+            card.once('destroy', () => { if (hitZone && hitZone.scene) hitZone.destroy(); });
+
+            return btnContainer;
+        };
+
+        const yesBtn = makeModalBtn(-100, 105, 180, 56, '예, 처음부터', 0xc8102e, '#ffffff', () => {
+            cm.setCurrentLayer(1);
+            if (this.soundManager) this.soundManager.playUpgradeSound();
+            this.cameras.main.flash(220, 200, 30, 30);
+            this.showToast('✅ Layer 1로 리셋됨!');
+            close();
+        });
+        const noBtn = makeModalBtn(100, 105, 180, 56, '아니오', 0x666666, '#ffffff', close);
+
+        card.add([yesBtn, noBtn]);
+
+        // 등장 애니
+        card.setScale(0.7); card.alpha = 0;
+        this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 280, ease: 'Back.out' });
     }
 
     formatCurrency() {

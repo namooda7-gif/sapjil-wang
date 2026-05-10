@@ -101,8 +101,8 @@ const HOLE_MAX_HEIGHT        = 120;      // (현재 미사용)
 // 사용자 요청: 굴 바닥이 캐릭터 발과 거의 비슷한 높이여야 함 (이전 35 → 0)
 // hole.png는 origin (0.5, 1.0)이라 holeImage.y = character.y면 이미지 하단=발 라인
 const HOLE_Y_OFFSET          = 0;        // 캐릭터 발 라인에 굴 바닥 정렬
-const HOLE_PADDING_FACTOR    = 1.0;      // hole.png 자체에 padding 거의 없음 → 1.25는 굴이 surfaceY 위로
-                                         // 1.25 → 1.0: 시각 굴 위쪽 = surfaceY 정확 일치 (사장님 보고 정렬 어긋남 해소)
+const HOLE_PADDING_FACTOR    = 1.10;     // 1.25 너무 위 / 1.0 너무 아래 — 0.10 padding 가정
+                                         // 사장님 검증 후 1.05~1.20 사이 미세 조정 가능
 
 // ━━ 흙더미 시스템 (mound_right.png 이미지) ━━
 //   - 오른쪽용 1장만 로드, 왼쪽은 flipX로 좌우 반전 재활용
@@ -3037,23 +3037,23 @@ export default class GameScene extends Phaser.Scene {
         this.undergroundOverlay.clear();
         if (!this.bgImage) return;
 
+        // 사장님 보고: 6레벨 진입 시 배경 회색 → 처음 진입 단계엔 비활성화
+        // LOOP_START_ROW(=1300) 진입 후만 활성화 — 그 전엔 배경 layer_NNN_bg 그대로 노출
+        if ((this.virtualScrollY || 0) < LOOP_START_ROW) return;
+
         const { width, height } = this.cameras.main;
         const tileScale = this.bgImage.tileScaleY || 1;
         const surfaceY = (SURFACE_TEXTURE_Y - (this.virtualScrollY || 0)) * tileScale;
 
-        // 지표면이 화면 안 또는 위 → 그 아래만 underground (지상 잔존 제거)
-        // 색은 currentDirtPalette의 어두운 톤 (레이어별 흙색과 통일)
+        // 지하 단계 진입 후 — wrap 시 지상 깜빡 차단용. surfaceY 아래만 어두운 흙으로 덮음
         const darkSoil = (this.currentDirtPalette && this.currentDirtPalette[2]) || 0x2a1a0a;
         this.undergroundOverlay.fillStyle(darkSoil, 1);
 
         if (surfaceY <= 0) {
-            // 지표면 화면 위 밖 → 화면 전체 underground
             this.undergroundOverlay.fillRect(0, 0, width, height);
         } else if (surfaceY < height) {
-            // 지표면 화면 안 → 그 아래만 덮음
             this.undergroundOverlay.fillRect(0, surfaceY, width, height - surfaceY);
         }
-        // surfaceY >= height면 아직 표면 단계, 덮을 필요 없음
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
