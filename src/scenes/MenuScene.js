@@ -85,35 +85,80 @@ export default class MenuScene extends Phaser.Scene {
         this.soundManager.playBGM('bgm_menu');
         this.createBGMToggleButton(width - 60, 60);
 
-        // ━━━━ 출석 보상 매니저 (오프라인 닫힌 후 출석 팝업 체이닝) ━━━━
-        // 신규 유저(isFirstTime)는 스킵 — 사용자가 만든 "삽질하러 가기" 큰 시작 버튼 첫 인상을
-        // 출석 팝업이 가려서 망치지 않도록. 두 번째 진입부터 출석 노출.
+        // ━━━━ 출석 보상 매니저 (자동 팝업 비활성화 — 사장님 피드백: 시작 버튼 가려서 어색) ━━━━
+        // 메뉴 진입 시 자동으로 안 뜨고, 우상단 🎁 버튼 누를 때만 노출
+        // 오프라인 보상도 같은 패턴 (자동 X, 버튼 누름 시 X)
         this.attendanceManager = new AttendanceManager(this.currencyManager);
-        const showAttendanceIfDue = () => {
-            if (isFirstTime) return;
-            if (!this.attendanceManager.canClaimToday()) return;
-            this.time.delayedCall(300, () => this.showAttendancePopup());
-        };
 
-        const reward = this.offlineRewardManager.getPendingReward();
-        if (reward > 0) {
-            this.soundManager.playOfflineRewardSound();
-            this.showOfflineRewardPopup(
-                reward, this.offlineRewardManager.formatElapsed(),
-                () => {
-                    this.offlineRewardManager.claim();
-                    // 페이드아웃(200ms) 끝난 후 출석 팝업 띄움 → 두 팝업 겹침 방지
-                    this.time.delayedCall(350, showAttendanceIfDue);
-                }
-            );
-        } else {
-            this.offlineRewardManager.markSeen();
-            showAttendanceIfDue();
-        }
+        // 우상단 🎁 보상 버튼 — 출석 가능/오프라인 보상 있으면 빨간 점 알림
+        this.createRewardButton(width - 60, 130);
+
+        // 오프라인 보상은 markSeen만 처리 (자동 받기 X)
+        // — 사장님이 🎁 버튼 누르면 그제야 보상 팝업 노출
         if (!this._beforeunloadHooked) {
             window.addEventListener('beforeunload', () => this.offlineRewardManager.markSeen());
             this._beforeunloadHooked = true;
         }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 우상단 🎁 보상 버튼 — 출석/오프라인 보상 모아 노출
+    //   알림 점: 출석 가능 OR 오프라인 보상 있으면 빨간 점
+    //   누름 시: 오프라인 보상 있으면 그것부터, 닫고 출석 가능하면 출석 팝업
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createRewardButton(x, y) {
+        const hasOffline = this.offlineRewardManager.getPendingReward() > 0;
+        const canAttend  = this.attendanceManager.canClaimToday();
+        const hasAlert   = hasOffline || canAttend;
+
+        // 원형 배경
+        this.add.circle(x, y, 38, 0x000000, 0.75)
+            .setStrokeStyle(3, 0xffd700).setDepth(50);
+
+        // 🎁 아이콘
+        const btn = this.add.text(x, y, '🎁', { font: '40px sans-serif' })
+            .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true });
+
+        // 빨간 점 (보상 있을 때)
+        if (hasAlert) {
+            const dot = this.add.circle(x + 22, y - 22, 9, 0xff3b30, 1)
+                .setStrokeStyle(2, 0xffffff).setDepth(52);
+            // 미세 펄스 (시선 끌기)
+            this.tweens.add({
+                targets: dot,
+                scale: { from: 1.0, to: 1.25 },
+                duration: 700, yoyo: true, repeat: -1, ease: 'Sine.inOut'
+            });
+        }
+
+        // 클릭 — 오프라인 우선, 없으면 출석
+        this.bindMobileClick(btn, () => {
+            const offlineReward = this.offlineRewardManager.getPendingReward();
+            if (offlineReward > 0) {
+                this.soundManager.playOfflineRewardSound();
+                this.showOfflineRewardPopup(
+                    offlineReward, this.offlineRewardManager.formatElapsed(),
+                    () => {
+                        this.offlineRewardManager.claim();
+                        this.time.delayedCall(350, () => {
+                            if (this.attendanceManager.canClaimToday()) {
+                                this.showAttendancePopup();
+                            } else {
+                                this.scene.restart();   // 알림 점 갱신
+                            }
+                        });
+                    }
+                );
+            } else if (this.attendanceManager.canClaimToday()) {
+                this.showAttendancePopup();
+                // 받은 후 알림 점 갱신을 위해 잠깐 후 재시작 — showAttendancePopup의 closePopup에 묶이면 더 깔끔하지만 단순 처리
+            } else {
+                this.showComingSoonToast('받을 보상이 없어요');
+            }
+        }, {
+            onPress:   () => btn.setAlpha(0.6),
+            onRelease: () => btn.setAlpha(1)
+        });
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -418,12 +463,10 @@ export default class MenuScene extends Phaser.Scene {
     //   다른 버튼보다 큰 사이즈 + 1.05x 펄스 + 황금 외곽 강조
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createStartButton(x, y, w, h) {
-        // depth 200: 모든 팝업(출석 121 / 오프라인 보상 101) 위로 올림 → 항상 input 받음 보장
-        // 사장님 보고: 메뉴 재진입 시 출석 팝업 overlay(setInteractive, 화면 전체)가 시작 버튼 input 가로챔
-        //   → 시각 반응 없음 매번 발생 (이전 50으론 setTopOnly에서 overlay가 위라 시작 버튼이 못 받음)
-        // depth 200 처방: 시작 버튼은 어떤 팝업이 떠있어도 input 항상 받음. 시작 시 scene.start로 즉시 전환되므로
-        //   팝업 위에 떠있는 시각적 어색함은 한 프레임 수준
-        const container = this.add.container(x, y).setDepth(200);
+        // depth 50: 캐릭터(5)/일반 메뉴 버튼(20) 위, BGM 토글(50/51)과 동급
+        // 출석/오프라인 팝업은 메뉴 진입 시 자동으로 안 뜨고 우상단 🎁 버튼 누를 때만 뜨므로
+        // 시작 버튼이 팝업 input과 충돌할 일 없음 (기존 depth 200 시각 어색 부작용 해소)
+        const container = this.add.container(x, y).setDepth(50);
         const radius = 18;
         const SHADOW_OFFSET = 8;
         const HIT_PAD = 30;   // 히트영역 ±30px 확장 (이전 18 → 30, 손가락 빗나감 더 관대)

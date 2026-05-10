@@ -429,6 +429,10 @@ export default class GameScene extends Phaser.Scene {
         const selectedId = this.currencyManager.selectedCharacterId || 'char_001';
         this.characterId = this.textures.exists(`${selectedId}_idle`) ? selectedId : 'char_001';
 
+        // 진행 중인 레이어 — CurrencyManager에서 가져와 이어가기 보장
+        // 캐릭터 변경 / 앱 재시작 무관하게 마지막 레이어부터 재개
+        this.layerOrder = this.currencyManager.currentLayer || 1;
+
         // 배경 폴백 사각형 (bgImage 로드 실패 시에만 보이는 색)
         this.bg = this.add.rectangle(width / 2, height / 2, width, height, 0x6b4423);
 
@@ -793,6 +797,10 @@ export default class GameScene extends Phaser.Scene {
         this.layerData = layer;
         this.digCount = 0;
         this.digFraction = 0;           // 새 레이어 진입 시 fraction 캐리도 리셋
+        // 영구 저장 — 캐릭터 변경 / 앱 재시작 후도 이 레이어부터 이어가기
+        if (this.currencyManager && typeof this.currencyManager.setCurrentLayer === 'function') {
+            this.currencyManager.setCurrentLayer(order);
+        }
         this.foreshadowCooldown = 0;    // foreshadow 쿨다운도 리셋
         this.tapsSinceLastDrinkCheck = 0;
         this.tapsSinceLastWeatherCheck = 0;
@@ -2772,10 +2780,14 @@ export default class GameScene extends Phaser.Scene {
         // 구덩이 바닥 = 캐릭터 발 + HOLE_Y_OFFSET (살짝 아래)
         const holeBottomY = this.character.y + HOLE_Y_OFFSET;
 
-        // 높이 = (바닥 - 지표면) × PADDING_FACTOR
-        // 비례 보정: 깊이 깊어져도 이미지 padding이 같은 비율로 가려지므로 갭 절대 안 생김
-        // origin (0.5, 1.0)이라 displayHeight를 키우면 바닥은 holeBottomY 고정 + 위로 자람
-        const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) * HOLE_PADDING_FACTOR);
+        // 높이 = (바닥 - 지표면) × PADDING_FACTOR, 캐릭터 가림 방지 cap
+        // 사장님 보고: 100탭 후 굴이 무한히 자라 캐릭터 머리까지 덮어 "캐릭터가 굴 밑에" 보임
+        // 처방: 굴 최대 높이를 캐릭터 displayHeight × 0.8로 제한 → 캐릭터 머리는 항상 굴 위로 노출
+        // 깊이감은 배경 빠른 스크롤(가속 4.5x)로 충분히 표현됨
+        const charH = (this.character && this.character.displayHeight) || 600;
+        const HOLE_MAX_H = charH * 0.8;
+        const rawH = (holeBottomY - surfaceY) * HOLE_PADDING_FACTOR;
+        const h = Math.max(HOLE_MIN_HEIGHT, Math.min(HOLE_MAX_H, rawH));
 
         this.holeImage.setDisplaySize(w, h);
         // 하단 padding 보정 with cap:

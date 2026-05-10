@@ -24,6 +24,9 @@ export default class CurrencyManager {
         this.ownedCharacters    = [...DEFAULT_OWNED_CHARACTERS];
         this.selectedCharacterId = DEFAULT_CHARACTER_ID;
 
+        // 진행 중인 레이어 (1~). 캐릭터 변경 / 앱 재시작에도 이어가기 보장
+        this.currentLayer = 1;
+
         this.load();
 
         // 무료 캐릭터(price.type === 'free') 자동 보유 보장 — load() early-return 케이스(신규 유저) 백업
@@ -178,6 +181,7 @@ export default class CurrencyManager {
                 collectedTreasures: this.collectedTreasures,
                 ownedCharacters: this.ownedCharacters,
                 selectedCharacterId: this.selectedCharacterId,
+                currentLayer: this.currentLayer,
                 updated_at: Date.now()
             };
             localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
@@ -216,9 +220,17 @@ export default class CurrencyManager {
             this.selectedCharacterId = this.ownedCharacters.includes(selected)
                 ? selected
                 : DEFAULT_CHARACTER_ID;
+            // 진행 레이어 — 1 미만이면 1로 보정
+            this.currentLayer = Math.max(1, parseInt(data.currentLayer, 10) || 1);
         } catch (e) {
             console.warn('재화 로드 실패:', e);
         }
+    }
+
+    // 레이어 진행 갱신 (GameScene loadLayer에서 호출)
+    setCurrentLayer(order) {
+        this.currentLayer = Math.max(1, parseInt(order, 10) || 1);
+        this.save();
     }
 
     reset() {
@@ -228,6 +240,7 @@ export default class CurrencyManager {
         this.shovelLevel = 0;
         this.ownedCharacters = [...DEFAULT_OWNED_CHARACTERS];
         this.selectedCharacterId = DEFAULT_CHARACTER_ID;
+        this.currentLayer = 1;
         this.save();
     }
 }
