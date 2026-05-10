@@ -185,6 +185,16 @@ const BGM_STORAGE_KEY    = 'sapjilwang_bgm_muted_v1';
 const BGM_DEFAULT_VOLUME = 0.4;
 const BGM_FADE_DURATION  = 500;
 
+// 트랙별 볼륨 부스트 — 사장님 피드백: layer 1~3 BGM이 다른 레벨보다 작게 들림
+//   원인: 트랙 파일 자체 마스터링 음량 차이 (수노 등 외부 생성)
+//   처방: 작은 트랙만 1.0 초과 multiplier로 보강. 최종 볼륨은 1.0으로 클램프.
+const BGM_TRACK_VOLUMES = {
+    'bgm_layer001': 1.6,
+    'bgm_layer002': 1.6,
+    'bgm_layer003': 1.6
+    // 나머지(menu, layer 4~6)는 기본 1.0
+};
+
 const bgmState = {
     currentBgm: null,
     currentKey: null,
@@ -1060,7 +1070,9 @@ export default class SoundManager {
             }
         }
 
-        // 새 BGM 페이드인
+        // 새 BGM 페이드인 (트랙별 부스트 multiplier 적용 후 1.0 클램프)
+        const trackMult = BGM_TRACK_VOLUMES[key] || 1.0;
+        const targetVol = Math.min(1.0, bgmState.volume * trackMult);
         try {
             const sound = this.scene.sound.add(key, { loop: true, volume: 0 });
             sound.play();
@@ -1068,7 +1080,7 @@ export default class SoundManager {
 
             this.scene.tweens.add({
                 targets: sound,
-                volume: bgmState.volume,
+                volume: targetVol,
                 duration: BGM_FADE_DURATION
             });
         } catch (e) {

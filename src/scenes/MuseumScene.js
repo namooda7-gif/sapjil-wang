@@ -207,17 +207,23 @@ export default class MuseumScene extends Phaser.Scene {
         }).setOrigin(0.5);
 
         // 보물 이미지 (카드 중앙)
+        // 사장님 피드백: 이미지 위·아래 글자가 이미지에 겹쳐 보임
+        //   → 이미지 사이즈 100x100으로 살짝 줄이고(중앙 -50~+50)
+        //     name·layer는 이미지 위로(-95, -68), desc는 이미지 아래로(+62, font 12) 재배치
+        //     sillyText는 카드 최하단 안전 영역(+102)으로 이동
+        let sillyTextY = CARD_H / 2 - 25;
         if (this.textures.exists(treasure.id)) {
-            const icon = this.add.image(0, 5, treasure.id).setDisplaySize(120, 120);
+            const icon = this.add.image(0, -5, treasure.id).setDisplaySize(100, 100);
             card.add(icon);
-            // 텍스트 위치 하단으로 밀기
-            name.setY(-CARD_H / 2 + 45);
-            layer.setY(-CARD_H / 2 + 75);
-            desc.setY(CARD_H / 2 - 85).setFontSize(15);
+            // 텍스트 재배치: layer는 이미지 위, desc는 이미지 아래로 분리
+            name.setY(-CARD_H / 2 + 22);
+            layer.setY(-CARD_H / 2 + 48);
+            desc.setY(CARD_H / 2 - 56).setFontSize(12);
+            sillyTextY = CARD_H / 2 - 20;
         }
 
         // 뻘짓 점수 (하단)
-        const sillyText = this.add.text(0, CARD_H / 2 - 25, `🎭 뻘짓 +${style.score}점`, {
+        const sillyText = this.add.text(0, sillyTextY, `🎭 뻘짓 +${style.score}점`, {
             font: 'bold 20px sans-serif', color: '#ffd700'
         }).setOrigin(0.5);
 

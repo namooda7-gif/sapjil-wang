@@ -251,25 +251,25 @@ const DRINK_BONUS = {
 };
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-// SAPREME® LIMITED DROP — 스윗스팟 정조준 보너스 (Supreme 패러디)
-//   화면 가운데 영역에 빨간 박스 로고 + 골드삽 아이콘이 둥실 떠다니다
+// POWER DIG LIMITED DROP — 스윗스팟 정조준 보너스
+//   캐릭터 아래쪽에 강조 박스 + 금색 곡괭이 아이콘이 둥실 떠다니다
 //   "정확히" 탭하면 ×2 코인 + 콤보 +5 보너스. 빗나가도 일반 dig는 정상 작동.
-//   - 글로벌 출시: 철자 변경(SUPREME→SAPREME)으로 상표 회피, 박스 로고 미감만 차용
 //   - 캐주얼 톤 유지: 페널티 없음. 정조준은 "추가 보상" 개념 (놓쳐도 손해 X)
 //   - 첫 레이어에서 보장 1회 등장 → 시스템 인지 + 그 후 25탭마다 25% 굴림
+//   - 위치: 캐릭터 아래(엄지 도달 영역) → 한 손 그립에서 탭 용이
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const SAPREME_SPAWN_INTERVAL      = 25;        // 매 N탭마다 굴림
-const SAPREME_SPAWN_CHANCE        = 0.25;      // 25% 등장 확률
-const SAPREME_FIRST_GUARANTEED_AT = 15;        // 매 레이어 진입 후 이 탭에 무조건 1회
-const SAPREME_LIFETIME_MS         = 5000;      // 5초 머무르고 자동 페이드아웃
-const SAPREME_HIT_RADIUS          = 225;       // 정조준 히트 반경 (px) — 박스 + 살짝 패딩 (시각 3배 확대 대응)
-const SAPREME_BONUS_COIN_MULT     = 2.0;       // 명중 시 그 탭 코인 ×2
-const SAPREME_BONUS_COMBO_ADD     = 5;         // 명중 시 콤보 +5
-const SAPREME_REACTION_LINES = [
-    '헐 한정판이다!',
-    'SAPREME 드롭 떴다!',
-    '리셀가 얼만데!',
-    '오늘의 픽업!'
+const POWERDIG_SPAWN_INTERVAL      = 25;        // 매 N탭마다 굴림
+const POWERDIG_SPAWN_CHANCE        = 0.25;      // 25% 등장 확률
+const POWERDIG_FIRST_GUARANTEED_AT = 15;        // 매 레이어 진입 후 이 탭에 무조건 1회
+const POWERDIG_LIFETIME_MS         = 5000;      // 5초 머무르고 자동 페이드아웃
+const POWERDIG_HIT_RADIUS          = 225;       // 정조준 히트 반경 (px) — 박스 + 살짝 패딩 (시각 3배 확대 대응)
+const POWERDIG_BONUS_COIN_MULT     = 2.0;       // 명중 시 그 탭 코인 ×2
+const POWERDIG_BONUS_COMBO_ADD     = 5;         // 명중 시 콤보 +5
+const POWERDIG_REACTION_LINES = [
+    '오! 파워곡괭이!',
+    'POWER DIG 떴다!',
+    '이거 한 방이면!',
+    '풀파워 가즈아!'
 ];
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -410,11 +410,11 @@ export default class GameScene extends Phaser.Scene {
         this.foreshadowGfx = null;            // 발견 직전 황금빛 반짝 graphics
         this.foreshadowTween = null;
 
-        // ━━ SAPREME 스윗스팟 ━━
-        // sapremeBox = { container, glow, radius, expiresAt } 또는 null
-        this.tapsSinceLastSapremeCheck = 0;
-        this.firstSapremeEverSpawned = false;
-        this.sapremeBox = null;
+        // ━━ POWER DIG 스윗스팟 ━━
+        // powerDigBox = { container, glow, radius, expiresAt } 또는 null
+        this.tapsSinceLastPowerDigCheck = 0;
+        this.firstPowerDigEverSpawned = false;
+        this.powerDigBox = null;
     }
 
     create() {
@@ -789,15 +789,15 @@ export default class GameScene extends Phaser.Scene {
         this.foreshadowCooldown = 0;    // foreshadow 쿨다운도 리셋
         this.tapsSinceLastDrinkCheck = 0;
         this.tapsSinceLastWeatherCheck = 0;
-        this.tapsSinceLastSapremeCheck = 0;
-        // 매 레이어 진입마다 첫 드링크/기상/SAPREME 보장 → 모든 레이어에서 시스템 인지 + 자주 노출
+        this.tapsSinceLastPowerDigCheck = 0;
+        // 매 레이어 진입마다 첫 드링크/기상/POWER DIG 보장 → 모든 레이어에서 시스템 인지 + 자주 노출
         this.firstDrinkEverSpawned = false;
         this.firstWeatherEverSpawned = false;
-        this.firstSapremeEverSpawned = false;
-        // 진행 중이던 SAPREME 박스가 있으면 즉시 정리 (다음 레이어로 이월 X)
-        if (this.sapremeBox) {
-            if (this.sapremeBox.container) this.sapremeBox.container.destroy();
-            this.sapremeBox = null;
+        this.firstPowerDigEverSpawned = false;
+        // 진행 중이던 POWER DIG 박스가 있으면 즉시 정리 (다음 레이어로 이월 X)
+        if (this.powerDigBox) {
+            if (this.powerDigBox.container) this.powerDigBox.container.destroy();
+            this.powerDigBox = null;
         }
         this.combo = 0;
         this.firedComicTriggers.clear();
@@ -908,13 +908,13 @@ export default class GameScene extends Phaser.Scene {
         // ━━ 번아웃 중이면 dig 차단 (5초 자동 정지) ━━
         if (this.burnoutActive) return;
 
-        // ━━ SAPREME 정조준 명중 체크 (장애물보다 먼저, 보너스 플래그만 세움) ━━
+        // ━━ POWER DIG 정조준 명중 체크 (장애물보다 먼저, 보너스 플래그만 세움) ━━
         // 박스 안에 떨어진 탭은 일반 dig + 보너스(코인×2, 콤보+5) 둘 다 적용
         // 빗나가도 정상 dig 진행 → 캐주얼 톤 유지
-        let sapremeHit = false;
-        if (this.sapremeBox && this._isInSapreme(x, y)) {
-            sapremeHit = true;
-            this._consumeSapreme();
+        let powerDigHit = false;
+        if (this.powerDigBox && this._isInPowerDig(x, y)) {
+            powerDigHit = true;
+            this._consumePowerDig();
         }
 
         // ━━ 장애물 활성 중이면 → 일반 dig 대신 장애물에 탭 카운트 ━━
@@ -939,8 +939,8 @@ export default class GameScene extends Phaser.Scene {
             this.combo = 1;
             this.firedComboMonologues.clear();   // 콤보 끊기면 콤보 라인 다시 노출 가능
         }
-        // SAPREME 명중 시 콤보 +5 추가 부스트 (정상 콤보 +1 위에 누적)
-        if (sapremeHit) this.combo += SAPREME_BONUS_COMBO_ADD;
+        // POWER DIG 명중 시 콤보 +5 추가 부스트 (정상 콤보 +1 위에 누적)
+        if (powerDigHit) this.combo += POWERDIG_BONUS_COMBO_ADD;
         this.lastDigTime = now;
 
         // ━━ 진행 카운트 멀티플라이어 (강화: 100+ 단계 추가) ━━
@@ -1006,9 +1006,19 @@ export default class GameScene extends Phaser.Scene {
         //   Phase 2: 루프 텍스처(높이 LOOP_TEXTURE_HEIGHT). tilePositionY를 그 높이로 모듈로
         //            연산해서 무한 wrap → 그 레이어 고유의 지하 패턴이 끝없이 이어짐.
         if (this.bgImage && this.bgImage.type === 'TileSprite') {
-            const scrollAmount = this.combo >= 10
+            // ━━ 진행도 비례 가속 ━━
+            // 사장님 피드백: "끝날 때쯤 지상이 화면의 30% 보임"
+            // 원인: 짧은 레이어(layer 1=100탭)는 scrollAmount 누적이 부족해서 클리어 직전에도
+            //       tilePositionY가 LOOP_START_ROW에 못 미침 → 지표면이 화면에 남음
+            // 처방: 진행도(0~1) 비례 배율 1.0~2.5x 적용. 끝에 갈수록 빠르게 지하로.
+            //       requiredDigs는 손대지 않음 (메모리 규칙: 곱연산 배율로 페이스 조절).
+            const required = (this.layerData && this.layerData.requiredDigs) || 100;
+            const progress = Math.min(1, this.digCount / required);
+            const accelMult = 1.0 + progress * 1.5;   // 시작 1.0 → 끝 2.5
+            const baseScroll = this.combo >= 10
                 ? Phaser.Math.Between(4, 5)
                 : Phaser.Math.Between(2, 3);
+            const scrollAmount = Math.round(baseScroll * accelMult);
 
             // 누적 스크롤량 갱신 (루프 wrap에 무관하게 항상 증가) → drawHole에서 사용
             this.virtualScrollY += scrollAmount;
@@ -1054,8 +1064,8 @@ export default class GameScene extends Phaser.Scene {
         if (this.soulGauge < 10) coinGain = Math.max(1, Math.floor(coinGain * SOUL_BURNOUT_EFFICIENCY));
         // 삽카스 버프 활성 시 코인 +20%
         if (this.activeBuffs.coin > now) coinGain = Math.floor(coinGain * DRINK_BONUS.coin);
-        // SAPREME 정조준 보너스: 이번 탭 코인 ×2 (다른 모든 보너스 곱 후 마지막 적용)
-        if (sapremeHit) coinGain = Math.floor(coinGain * SAPREME_BONUS_COIN_MULT);
+        // POWER DIG 정조준 보너스: 이번 탭 코인 ×2 (다른 모든 보너스 곱 후 마지막 적용)
+        if (powerDigHit) coinGain = Math.floor(coinGain * POWERDIG_BONUS_COIN_MULT);
         this.currencyManager.addCoin(coinGain);
         // 코인 획득 사운드 (매 탭마다 살짝 다른 피치)
         this.soundManager.playCoinSound();
@@ -1173,17 +1183,17 @@ export default class GameScene extends Phaser.Scene {
             if (Math.random() < WEATHER_CHANCE) this.maybeStartWeather();
         }
 
-        // ━━ SAPREME 스윗스팟 등장 굴림 ━━
+        // ━━ POWER DIG 스윗스팟 등장 굴림 ━━
         // 첫 레이어에서 보장 1회 → 시스템 인지. 그 후 25탭마다 25% 확률
-        // 이미 박스가 떠 있으면 spawnSapreme이 내부에서 자동 차단
-        this.tapsSinceLastSapremeCheck += 1;
-        if (!this.firstSapremeEverSpawned && this.digCount >= SAPREME_FIRST_GUARANTEED_AT) {
-            this.firstSapremeEverSpawned = true;
-            this.tapsSinceLastSapremeCheck = 0;
-            this.spawnSapreme();
-        } else if (this.tapsSinceLastSapremeCheck >= SAPREME_SPAWN_INTERVAL) {
-            this.tapsSinceLastSapremeCheck = 0;
-            if (Math.random() < SAPREME_SPAWN_CHANCE) this.spawnSapreme();
+        // 이미 박스가 떠 있으면 spawnPowerDig이 내부에서 자동 차단
+        this.tapsSinceLastPowerDigCheck += 1;
+        if (!this.firstPowerDigEverSpawned && this.digCount >= POWERDIG_FIRST_GUARANTEED_AT) {
+            this.firstPowerDigEverSpawned = true;
+            this.tapsSinceLastPowerDigCheck = 0;
+            this.spawnPowerDig();
+        } else if (this.tapsSinceLastPowerDigCheck >= POWERDIG_SPAWN_INTERVAL) {
+            this.tapsSinceLastPowerDigCheck = 0;
+            if (Math.random() < POWERDIG_SPAWN_CHANCE) this.spawnPowerDig();
         }
 
         // ━━ SOUL 게이지 감소 (탭당 -0.5%) ━━
@@ -1857,61 +1867,76 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // SAPREME® LIMITED DROP — 스윗스팟 정조준 보너스
-    //   빨간 박스(SAPREME® 로고) + 골드삽 아이콘이 화면 가운데 영역에 둥실
-    //   히트 반경(SAPREME_HIT_RADIUS) 안에 정확히 탭 → 코인 ×2 + 콤보 +5
+    // POWER DIG LIMITED DROP — 스윗스팟 정조준 보너스
+    //   빨간 박스(POWER DIG 로고) + 골드삽 아이콘이 화면 가운데 영역에 둥실
+    //   히트 반경(POWERDIG_HIT_RADIUS) 안에 정확히 탭 → 코인 ×2 + 콤보 +5
     //   빗나가도 일반 dig는 정상 (캐주얼 톤 유지). 5초 후 자동 페이드아웃.
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    spawnSapreme() {
+    spawnPowerDig() {
         // 이미 활성 중이거나 차단 상태면 스킵 (중복 박스 방지)
-        if (this.sapremeBox) return;
+        if (this.powerDigBox) return;
         if (this.clearActive || this.treasurePopupActive || this.burnoutActive) return;
 
         const { width, height } = this.cameras.main;
 
-        // 등장 위치: 화면 가운데 영역(좌우 25~75%, 상하 30~55%)
-        // 캐릭터(y=858)와 HUD(상단 ~140, 하단 ~height-100) 둘 다 회피하면서 정조준 가능 영역
-        const startX = Phaser.Math.Between(Math.floor(width * 0.25), Math.floor(width * 0.75));
-        const startY = Phaser.Math.Between(Math.floor(height * 0.30), Math.floor(height * 0.55));
+        // 등장 위치: 캐릭터 아래쪽 (엄지 도달 영역) — 한 손 그립에서 정조준 용이
+        //   캐릭터(CHARACTER_Y=858) 아래 ~400px, 하단 HUD 위 최소 ~280px 마진 확보
+        //   x는 화면 중앙 30~70% (양쪽 끝 회피)
+        const baseY = CHARACTER_Y + 420;
+        const safeMaxY = Math.max(baseY, height - 280);
+        const startX = Phaser.Math.Between(Math.floor(width * 0.30), Math.floor(width * 0.70));
+        const startY = Phaser.Math.Between(baseY - 30, Math.min(baseY + 30, safeMaxY));
 
         const c = this.add.container(startX, startY).setDepth(15);
 
-        // 외곽 빨강 글로우 존 (펄스용 - 가장 뒤) — 3배 확대 (70 → 210)
-        // 사장님 피드백: 노란 존은 뭔지 인식 안 됨 → 빨간 박스와 같은 톤으로 통일
-        const glow = this.add.circle(0, 0, 210, 0xc8102e, 0.35);
+        // 외곽 빨강 글로우 존 (가장 뒤) — 영역 시그널
+        const glow = this.add.circle(0, 0, 240, 0xc8102e, 0.40);
 
-        // Supreme 미감 패러디 - 빨간 박스 로고 (상단) — 3배 확대 (110×30 → 330×90, y=-42 → -126)
+        // 곡괭이 금색 후광 — 곡괭이가 "특별한 아이템"임을 더 뚜렷하게
+        const halo = this.add.circle(0, 15, 180, 0xffd700, 0.55);
+
+        // 강조 빨간 박스 로고 (상단)
         const box = this.add.rectangle(0, -126, 330, 90, 0xc8102e)
             .setStrokeStyle(6, 0x000000, 0.85);
-        const brandText = this.add.text(0, -126, 'SAPREME®', {
+        const brandText = this.add.text(0, -126, 'POWER DIG', {
             font: 'italic bold 54px serif',
             color: '#ffffff'
         }).setOrigin(0.5);
 
-        // 골드삽 아이콘 (중앙) - 3배 확대 (56 → 168, y=5 → 15)
+        // 곡괭이 아이콘 (중앙) — 사장님 피드백: 곡괭이가 더 뚜렷해야 함
+        //   크기 168 → 230, 금색 외곽선 9 → 18로 임팩트 강화
         const shovel = this.add.text(0, 15, '⛏️', {
-            font: '168px sans-serif',
+            font: '230px sans-serif',
             stroke: '#ffd700',
-            strokeThickness: 9
+            strokeThickness: 18
         }).setOrigin(0.5);
 
-        // 아이템 명칭 라벨 (하단) — 3배 확대 (13 → 39, y=48 → 144)
-        // 사장님 피드백: "이게 뭔지 모르겠다" → 명확하게 "SAPREME® 곡괭이"로 표기
-        const limitedText = this.add.text(0, 144, 'SAPREME® 곡괭이', {
+        // 아이템 명칭 라벨 (하단)
+        const limitedText = this.add.text(0, 168, 'POWER DIG 곡괭이', {
             font: 'bold 39px sans-serif',
             color: '#ffd700',
             stroke: '#000', strokeThickness: 6
         }).setOrigin(0.5);
 
-        c.add([glow, box, brandText, shovel, limitedText]);
+        // 그리는 순서: glow → halo → box → brand → shovel(맨 위) → label
+        c.add([glow, halo, box, brandText, shovel, limitedText]);
 
-        // 글로우 펄스 (scale + alpha yoyo) → "한정판 두근두근" 어필
+        // 글로우 펄스 (영역 어필)
         this.tweens.add({
             targets: glow,
             scale: { from: 0.85, to: 1.20 },
             alpha: { from: 0.55, to: 0.20 },
             yoyo: true, repeat: -1,
             duration: 600, ease: 'Sine.inOut'
+        });
+
+        // 곡괭이 후광 펄스 (곡괭이 두근두근 강조)
+        this.tweens.add({
+            targets: halo,
+            scale: { from: 0.92, to: 1.12 },
+            alpha: { from: 0.55, to: 0.30 },
+            yoyo: true, repeat: -1,
+            duration: 500, ease: 'Sine.inOut'
         });
 
         // 컨테이너 자체 둥실둥실 (yoyo Y) → 살짝 움직이는 타깃
@@ -1933,31 +1958,31 @@ export default class GameScene extends Phaser.Scene {
             this.soundManager.playComboSound(10);
         }
 
-        this.sapremeBox = {
+        this.powerDigBox = {
             container: c,
             glow,
-            radius: SAPREME_HIT_RADIUS,
-            expiresAt: this.time.now + SAPREME_LIFETIME_MS
+            radius: POWERDIG_HIT_RADIUS,
+            expiresAt: this.time.now + POWERDIG_LIFETIME_MS
         };
     }
 
-    // 탭 좌표(x, y)가 SAPREME 박스 히트 반경 안에 있는지
-    _isInSapreme(x, y) {
-        if (!this.sapremeBox || !this.sapremeBox.container) return false;
-        const c = this.sapremeBox.container;
+    // 탭 좌표(x, y)가 POWER DIG 박스 히트 반경 안에 있는지
+    _isInPowerDig(x, y) {
+        if (!this.powerDigBox || !this.powerDigBox.container) return false;
+        const c = this.powerDigBox.container;
         const dx = x - c.x;
         const dy = y - c.y;
-        const r = this.sapremeBox.radius;
+        const r = this.powerDigBox.radius;
         return (dx * dx + dy * dy) <= (r * r);
     }
 
-    // SAPREME 명중 → 보너스 효과 + 박스 펑 사라짐 (보너스 수치 자체는 dig()에서 적용)
-    _consumeSapreme() {
-        if (!this.sapremeBox) return;
-        const ref = this.sapremeBox;
+    // POWER DIG 명중 → 보너스 효과 + 박스 펑 사라짐 (보너스 수치 자체는 dig()에서 적용)
+    _consumePowerDig() {
+        if (!this.powerDigBox) return;
+        const ref = this.powerDigBox;
         const c = ref.container;
-        // 즉시 sapremeBox 클리어 → 같은 탭에 두 번 적중 방지 + update()의 만료 체크와 충돌 방지
-        this.sapremeBox = null;
+        // 즉시 powerDigBox 클리어 → 같은 탭에 두 번 적중 방지 + update()의 만료 체크와 충돌 방지
+        this.powerDigBox = null;
 
         if (c) {
             // 펑! 사라지는 연출 (스케일 업 + 페이드)
@@ -1972,12 +1997,12 @@ export default class GameScene extends Phaser.Scene {
                 onComplete: () => c.destroy()
             });
             // 보너스 텍스트 (박스 위치에서 솟구침)
-            this.showFloatingText(c.x, c.y - 30, '🔥 SAPREME ×2!', '#ffd700');
+            this.showFloatingText(c.x, c.y - 30, '🔥 POWER DIG ×2!', '#ffd700');
         }
 
         // 캐릭터 코믹 반응 (말풍선)
-        const line = SAPREME_REACTION_LINES[
-            Math.floor(Math.random() * SAPREME_REACTION_LINES.length)
+        const line = POWERDIG_REACTION_LINES[
+            Math.floor(Math.random() * POWERDIG_REACTION_LINES.length)
         ];
         this.showCharacterMonologue(line);
 
@@ -3001,11 +3026,11 @@ export default class GameScene extends Phaser.Scene {
             this.endBurnout();
         }
 
-        // ━━ SAPREME 박스 만료 → 페이드아웃 (탭으로 명중되면 _consumeSapreme이 먼저 sapremeBox 클리어) ━━
-        if (this.sapremeBox && time >= this.sapremeBox.expiresAt) {
-            const c = this.sapremeBox.container;
-            const glow = this.sapremeBox.glow;
-            this.sapremeBox = null;
+        // ━━ POWER DIG 박스 만료 → 페이드아웃 (탭으로 명중되면 _consumePowerDig이 먼저 powerDigBox 클리어) ━━
+        if (this.powerDigBox && time >= this.powerDigBox.expiresAt) {
+            const c = this.powerDigBox.container;
+            const glow = this.powerDigBox.glow;
+            this.powerDigBox = null;
             if (c) {
                 this.tweens.killTweensOf(c);
                 if (glow) this.tweens.killTweensOf(glow);
@@ -3386,28 +3411,29 @@ export default class GameScene extends Phaser.Scene {
 
         const container = this.add.container(bubbleX, bubbleY).setDepth(48);
 
-        // 텍스트
+        // 텍스트 — 사장님 피드백: 글자 너무 작음 → 22 → 34px로 대폭 확대
         const txt = this.add.text(0, 0, text, {
-            font: 'bold 22px sans-serif',
+            font: 'bold 34px sans-serif',
             color: '#222',
             align: 'center'
         }).setOrigin(0.5);
 
         // 자동 사이즈 측정 후 라운드 사각형 배경 (Graphics)
-        const padX = 18;
-        const padY = 12;
+        // 폰트 키운 만큼 패딩도 비례 확대 → 시각적으로 "말풍선" 임팩트 강화
+        const padX = 26;
+        const padY = 18;
         const w = txt.width + padX * 2;
         const h = txt.height + padY * 2;
 
         const g = this.add.graphics();
         g.fillStyle(0xffffff, 0.97);
-        g.lineStyle(3, 0x333333, 1);
-        g.fillRoundedRect(-w / 2, -h / 2, w, h, 14);
-        g.strokeRoundedRect(-w / 2, -h / 2, w, h, 14);
-        // 꼬리 (아래쪽 작은 삼각형)
-        g.fillTriangle(-8, h / 2 - 1, 8, h / 2 - 1, 0, h / 2 + 10);
-        g.lineStyle(3, 0x333333, 1);
-        g.strokeTriangle(-8, h / 2 - 1, 8, h / 2 - 1, 0, h / 2 + 10);
+        g.lineStyle(4, 0x333333, 1);
+        g.fillRoundedRect(-w / 2, -h / 2, w, h, 18);
+        g.strokeRoundedRect(-w / 2, -h / 2, w, h, 18);
+        // 꼬리 (아래쪽 삼각형) — 폰트 확대에 맞춰 같이 키움
+        g.fillTriangle(-12, h / 2 - 1, 12, h / 2 - 1, 0, h / 2 + 16);
+        g.lineStyle(4, 0x333333, 1);
+        g.strokeTriangle(-12, h / 2 - 1, 12, h / 2 - 1, 0, h / 2 + 16);
 
         container.add([g, txt]);
 

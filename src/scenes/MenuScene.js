@@ -1,12 +1,12 @@
 // 메인 메뉴 씬 (대규모 업데이트 — 첫 진입 임팩트 강화)
 //   #1 발 밑 보물 티징    : 화면 하단에 살짝 빛나는 보물 1개로 호기심 유발
-//   #2 카피 수정          : "파러 가기 →" + "(사장님 몰래)" 부제 (B급 톤)
+//   #2 카피 수정          : "삽질하러 가기 →" 메인 라벨 (직관 강화)
 //   #3 캐릭터 터치 반응   : 박삽돌 찌르면 라인 순환 + 깜짝 흔들림
 //   #5 타이틀 숨쉬기/후광  : scale + alpha 펄스
 //   #5 흙먼지 파티클       : 화면 전체 미세 입자 6~8개
 //   #6 시작 버튼 펄스+👆  : 시작 버튼 1.05x 펄스 + 옆에 흔드는 손 이모지
 //   #7 재화 카운터        : 상단 중앙 (재진입 유저만)
-//   #8 신규/재진입 분기   : 첫 진입 시 [파러 가기]만, 재진입은 풀 메뉴
+//   #8 신규/재진입 분기   : 첫 진입 시 [삽질하러 가기]만, 재진입은 풀 메뉴
 import Phaser from 'phaser';
 import CurrencyManager from '../managers/CurrencyManager.js';
 import OfflineRewardManager from '../managers/OfflineRewardManager.js';
@@ -30,6 +30,10 @@ export default class MenuScene extends Phaser.Scene {
 
     create() {
         const { width, height } = this.cameras.main;
+
+        // 입력 우선순위: 가장 위 인터랙티브 요소만 받음 (depth 충돌 시 시작 버튼 우선)
+        // Phaser 기본값이지만 첫 탭 무반응 보고 받고 명시 — 일부 빌드에서 false로 바뀐 흔적 방지
+        this.input.setTopOnly(true);
 
         // ━━━━ 배경 + 어두운 오버레이 ━━━━
         if (this.textures.exists('layer_001_bg')) {
@@ -82,7 +86,7 @@ export default class MenuScene extends Phaser.Scene {
         this.createBGMToggleButton(width - 60, 60);
 
         // ━━━━ 출석 보상 매니저 (오프라인 닫힌 후 출석 팝업 체이닝) ━━━━
-        // 신규 유저(isFirstTime)는 스킵 — 사용자가 만든 "파러 가기" 큰 시작 버튼 첫 인상을
+        // 신규 유저(isFirstTime)는 스킵 — 사용자가 만든 "삽질하러 가기" 큰 시작 버튼 첫 인상을
         // 출석 팝업이 가려서 망치지 않도록. 두 번째 진입부터 출석 노출.
         this.attendanceManager = new AttendanceManager(this.currencyManager);
         const showAttendanceIfDue = () => {
@@ -373,7 +377,7 @@ export default class MenuScene extends Phaser.Scene {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // #6/#8/#2 메뉴 버튼 묶음
-    //   - 신규(isFirstTime): 큰 [파러 가기 →] 하나만 + 흔드는 👆
+    //   - 신규(isFirstTime): 큰 [삽질하러 가기 →] 하나만 + 흔드는 👆
     //   - 재진입: 시작 + 캐릭터 + 상점 + 박물관 4개 (시작은 펄스 강조)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createMenuButtons(width, height, isFirstTime) {
@@ -406,11 +410,13 @@ export default class MenuScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // #6 시작 버튼 (펄스 + "파러 가기 →" 메인 + "(사장님 몰래)" 부제)
+    // #6 시작 버튼 (펄스 + "삽질하러 가기 →" 메인 라벨)
     //   다른 버튼보다 큰 사이즈 + 1.05x 펄스 + 황금 외곽 강조
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createStartButton(x, y, w, h) {
-        const container = this.add.container(x, y).setDepth(20);
+        // depth 50: 다른 인터랙티브 요소(캐릭터 5, 다른 메뉴 버튼 20) 위 입력 우선순위 보장
+        // 사장님 피드백 "한 번에 안 눌림" — setTopOnly 기본이지만 depth 차이로 충돌 차단
+        const container = this.add.container(x, y).setDepth(50);
         const radius = 18;
         const SHADOW_OFFSET = 8;
         const HIT_PAD = 30;   // 히트영역 ±30px 확장 (이전 18 → 30, 손가락 빗나감 더 관대)
@@ -432,17 +438,12 @@ export default class MenuScene extends Phaser.Scene {
         shine.fillStyle(0xffffaa, 0.45);
         shine.fillRoundedRect(-w / 2 + 8, -h / 2 + 6, w - 16, Math.max(8, h * 0.18), 6);
 
-        // 메인 라벨 "파러 가기 →"
-        const main = this.add.text(0, -h * 0.10, '파러 가기 →', {
-            font: 'bold 38px sans-serif', color: '#000000'
+        // 메인 라벨 "삽질하러 가기 →" (부제 제거 → 메인을 중앙 정렬로 이동)
+        const main = this.add.text(0, 0, '삽질하러 가기 →', {
+            font: 'bold 42px sans-serif', color: '#000000'
         }).setOrigin(0.5);
 
-        // 부제 "(사장님 몰래)"
-        const sub = this.add.text(0, h * 0.20, '(사장님 몰래)', {
-            font: 'italic 18px sans-serif', color: '#5a2d0c'
-        }).setOrigin(0.5);
-
-        container.add([shadow, top, shine, main, sub]);
+        container.add([shadow, top, shine, main]);
 
         // 히트 영역 (HIT_PAD 30px 확장)
         container.setSize(w + HIT_PAD * 2, h + SHADOW_OFFSET + HIT_PAD * 2);
@@ -474,6 +475,12 @@ export default class MenuScene extends Phaser.Scene {
         container.on('pointerdown', () => {
             if (starting) return;     // 더블 탭/연타 중복 진입 차단
             starting = true;
+            // AudioContext 명시 resume — 모바일 첫 사용자 제스처에서만 unlock 가능.
+            // Phaser가 자동 처리하지만 일부 WebView에서 첫 탭이 unlock에만 소비되는 케이스 보강.
+            try {
+                const ctx = this.sound && this.sound.context;
+                if (ctx && ctx.state === 'suspended') ctx.resume();
+            } catch (e) {}
             pulseTween.pause();
             container.setScale(0.88);
             this.spawnButtonRipple(x, y);
