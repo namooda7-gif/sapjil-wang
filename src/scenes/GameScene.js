@@ -101,10 +101,8 @@ const HOLE_MAX_HEIGHT        = 120;      // (현재 미사용)
 // 사용자 요청: 굴 바닥이 캐릭터 발과 거의 비슷한 높이여야 함 (이전 35 → 0)
 // hole.png는 origin (0.5, 1.0)이라 holeImage.y = character.y면 이미지 하단=발 라인
 const HOLE_Y_OFFSET          = 0;        // 캐릭터 발 라인에 굴 바닥 정렬
-const HOLE_PADDING_FACTOR    = 1.25;     // 비례 보정: 이미지 상단 padding을 깊이에 비례해 가림
-                                         //   → 깊이 깊어져도 갭 안 생김 (근본 해결)
-                                         //   → padding 비율 추정값: 1.25 = 20% padding 가정
-                                         //   → 갭 보이면 1.30, 1.35로. 너무 솟구치면 1.20, 1.15로
+const HOLE_PADDING_FACTOR    = 1.0;      // hole.png 자체에 padding 거의 없음 → 1.25는 굴이 surfaceY 위로
+                                         // 1.25 → 1.0: 시각 굴 위쪽 = surfaceY 정확 일치 (사장님 보고 정렬 어긋남 해소)
 
 // ━━ 흙더미 시스템 (mound_right.png 이미지) ━━
 //   - 오른쪽용 1장만 로드, 왼쪽은 flipX로 좌우 반전 재활용
@@ -484,8 +482,9 @@ export default class GameScene extends Phaser.Scene {
         // 캐릭터 변경 / 앱 재시작 무관하게 마지막 레이어부터 재개
         this.layerOrder = this.currencyManager.currentLayer || 1;
 
-        // 배경 폴백 사각형 (bgImage 로드 실패 시에만 보이는 색)
-        this.bg = this.add.rectangle(width / 2, height / 2, width, height, 0x6b4423);
+        // 배경 폴백 사각형 — 어두운 흙 (사장님 보고: 황토색 깜빡 → 지하 톤으로 통일)
+        // 깊이 들어간 후 wrap 직전 1프레임 노출돼도 황토색 대신 자연스러운 어두운 흙
+        this.bg = this.add.rectangle(width / 2, height / 2, width, height, 0x2a1a0a);
 
         // ━━━ 레이어 배경 이미지 (TileSprite로 무한 세로 스크롤) ━━━
         // 이미지 구조: 상단 72% = 지상 풍경 / 하단 28% = 지하 단면
@@ -3028,13 +3027,33 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 지하 마스킹 오버레이 (B-2 도입 후 비활성)
-    //   - 기존엔 TileSprite wrap-around로 지상이 화면 아래에 재출현하는 걸 단색으로 덮었음
-    //   - B-2에선 LOOP_START_ROW에서 지하 전용 텍스처로 전환되어 wrap이 안 발생함
-    //   - 따라서 이 오버레이는 그릴 필요 없음 (graphics는 clear만 - 만약을 위해 보존)
+    // 지하 마스킹 오버레이 — 사장님 보고: 다 판 후 화면 아래 지상 30% 잔존 + wrap 시 지상 깜빡
+    //   B-2 loop 텍스처가 100% 동작 안 하는 케이스 보강
+    //   surfaceY가 화면 안일 때만 그 아래 영역을 어두운 흙으로 덮음
+    //   surfaceY 화면 위로 갔으면(=충분히 깊음) 화면 전체 underground
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     drawUndergroundOverlay() {
-        if (this.undergroundOverlay) this.undergroundOverlay.clear();
+        if (!this.undergroundOverlay) return;
+        this.undergroundOverlay.clear();
+        if (!this.bgImage) return;
+
+        const { width, height } = this.cameras.main;
+        const tileScale = this.bgImage.tileScaleY || 1;
+        const surfaceY = (SURFACE_TEXTURE_Y - (this.virtualScrollY || 0)) * tileScale;
+
+        // 지표면이 화면 안 또는 위 → 그 아래만 underground (지상 잔존 제거)
+        // 색은 currentDirtPalette의 어두운 톤 (레이어별 흙색과 통일)
+        const darkSoil = (this.currentDirtPalette && this.currentDirtPalette[2]) || 0x2a1a0a;
+        this.undergroundOverlay.fillStyle(darkSoil, 1);
+
+        if (surfaceY <= 0) {
+            // 지표면 화면 위 밖 → 화면 전체 underground
+            this.undergroundOverlay.fillRect(0, 0, width, height);
+        } else if (surfaceY < height) {
+            // 지표면 화면 안 → 그 아래만 덮음
+            this.undergroundOverlay.fillRect(0, surfaceY, width, height - surfaceY);
+        }
+        // surfaceY >= height면 아직 표면 단계, 덮을 필요 없음
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
