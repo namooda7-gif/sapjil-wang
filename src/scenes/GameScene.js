@@ -583,10 +583,12 @@ export default class GameScene extends Phaser.Scene {
 
         // 콤보 표시 — 캐릭터 머리 위 충분히 위로 (혼잣말 말풍선과 겹치지 않도록 130px 마진)
         // 말풍선은 머리 위 20px에 등장(높이 ~60~70px)이라 그 위로 더 띄워야 함
+        // depth 16: 사장님 보고 "콤보가 굴 뒤로 숨어 안 보임" — hole(4)/캐릭터(10)/dirtEmitter(15) 위로
+        //           HUD(20)는 안 가림
         const comboY = this.character.y - this.character.displayHeight - 130;
         this.comboText = this.add.text(width / 2, comboY, '', {
             font: 'bold 56px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 6
-        }).setOrigin(0.5).setAlpha(0);
+        }).setOrigin(0.5).setAlpha(0).setDepth(16);
 
         // 탭 영역 (화면 전체) - 장애물이 화면 정중앙에 등장하므로 어디 탭해도 인식되어야 함
         // depth 0 (배경 위, HUD/캐릭터/장애물 아래) → 다른 UI 클릭 차단 안 함
@@ -1006,15 +1008,13 @@ export default class GameScene extends Phaser.Scene {
         //   Phase 2: 루프 텍스처(높이 LOOP_TEXTURE_HEIGHT). tilePositionY를 그 높이로 모듈로
         //            연산해서 무한 wrap → 그 레이어 고유의 지하 패턴이 끝없이 이어짐.
         if (this.bgImage && this.bgImage.type === 'TileSprite') {
-            // ━━ 진행도 비례 가속 ━━
-            // 사장님 피드백: "끝날 때쯤 지상이 화면의 30% 보임"
-            // 원인: 짧은 레이어(layer 1=100탭)는 scrollAmount 누적이 부족해서 클리어 직전에도
-            //       tilePositionY가 LOOP_START_ROW에 못 미침 → 지표면이 화면에 남음
-            // 처방: 진행도(0~1) 비례 배율 1.0~2.5x 적용. 끝에 갈수록 빠르게 지하로.
-            //       requiredDigs는 손대지 않음 (메모리 규칙: 곱연산 배율로 페이스 조절).
+            // ━━ 진행도 비례 가속 (2차 강화) ━━
+            // 1차(2.5x)도 끝에 지상 보임 — 배율 부족. 4.5x로 상향.
+            //   요구 처방: 100탭 레이어 기준 평균 baseScroll 3.5px × 4.5 = 15.75px/탭
+            //   누적 ≈ 1500px. LOOP_START_ROW(1300) 충분히 넘김.
             const required = (this.layerData && this.layerData.requiredDigs) || 100;
             const progress = Math.min(1, this.digCount / required);
-            const accelMult = 1.0 + progress * 1.5;   // 시작 1.0 → 끝 2.5
+            const accelMult = 1.0 + progress * 3.5;   // 시작 1.0 → 끝 4.5
             const baseScroll = this.combo >= 10
                 ? Phaser.Math.Between(4, 5)
                 : Phaser.Math.Between(2, 3);
@@ -1895,25 +1895,27 @@ export default class GameScene extends Phaser.Scene {
         // 곡괭이 금색 후광 — 곡괭이가 "특별한 아이템"임을 더 뚜렷하게
         const halo = this.add.circle(0, 15, 180, 0xffd700, 0.55);
 
-        // 강조 빨간 박스 로고 (상단)
-        const box = this.add.rectangle(0, -126, 330, 90, 0xc8102e)
+        // 강조 빨간 박스 로고 (상단) — 글자 키운 만큼 박스도 확대
+        //   330×90 → 420×120, 폰트 54 → 76, 검정 stroke 가독성
+        const box = this.add.rectangle(0, -141, 420, 120, 0xc8102e)
             .setStrokeStyle(6, 0x000000, 0.85);
-        const brandText = this.add.text(0, -126, 'POWER DIG', {
-            font: 'italic bold 54px serif',
-            color: '#ffffff'
+        const brandText = this.add.text(0, -141, 'POWER DIG', {
+            font: 'italic bold 76px serif',
+            color: '#ffffff',
+            stroke: '#000000', strokeThickness: 6
         }).setOrigin(0.5);
 
-        // 곡괭이 아이콘 (중앙) — 사장님 피드백: 곡괭이가 더 뚜렷해야 함
-        //   크기 168 → 230, 금색 외곽선 9 → 18로 임팩트 강화
+        // 곡괭이 아이콘 (중앙) — 또렷함 강화
+        //   크기 230 → 260, 금색 stroke 18 → 22, 검정 drop shadow 추가 (입체)
         const shovel = this.add.text(0, 15, '⛏️', {
-            font: '230px sans-serif',
+            font: '260px sans-serif',
             stroke: '#ffd700',
-            strokeThickness: 18
-        }).setOrigin(0.5);
+            strokeThickness: 22
+        }).setOrigin(0.5).setShadow(0, 6, '#000000', 14, true, true);
 
-        // 아이템 명칭 라벨 (하단)
-        const limitedText = this.add.text(0, 168, 'POWER DIG 곡괭이', {
-            font: 'bold 39px sans-serif',
+        // 아이템 명칭 라벨 (하단) — 박스 확대 + 곡괭이 키운 만큼 같이 내림
+        const limitedText = this.add.text(0, 188, 'POWER DIG 곡괭이', {
+            font: 'bold 42px sans-serif',
             color: '#ffd700',
             stroke: '#000', strokeThickness: 6
         }).setOrigin(0.5);
@@ -2309,7 +2311,9 @@ export default class GameScene extends Phaser.Scene {
         const weatherEmoji = key === 'rain'  ? '🌧️'
                            : key === 'snow'  ? '❄️'
                            : '🌪️';
-        const banner = this.add.container(width / 2, height * 0.32).setDepth(60);
+        // 사장님 피드백: "캐릭터 가려" → 화면 상단(0.32) → 장애물 아래(0.86)로 이동
+        //   장애물 cy=character.y+95(~74%) + HP바(~85%) → 그 아래 0.86 = tapHint(0.92) 위 안전 마진
+        const banner = this.add.container(width / 2, height * 0.86).setDepth(60);
         const bannerW = 380, bannerH = 110;
         const bannerBg = this.add.graphics();
         bannerBg.fillStyle(0x000000, 0.85);
