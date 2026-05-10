@@ -418,9 +418,12 @@ export default class MenuScene extends Phaser.Scene {
     //   다른 버튼보다 큰 사이즈 + 1.05x 펄스 + 황금 외곽 강조
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     createStartButton(x, y, w, h) {
-        // depth 50: 다른 인터랙티브 요소(캐릭터 5, 다른 메뉴 버튼 20) 위 입력 우선순위 보장
-        // 사장님 피드백 "한 번에 안 눌림" — setTopOnly 기본이지만 depth 차이로 충돌 차단
-        const container = this.add.container(x, y).setDepth(50);
+        // depth 200: 모든 팝업(출석 121 / 오프라인 보상 101) 위로 올림 → 항상 input 받음 보장
+        // 사장님 보고: 메뉴 재진입 시 출석 팝업 overlay(setInteractive, 화면 전체)가 시작 버튼 input 가로챔
+        //   → 시각 반응 없음 매번 발생 (이전 50으론 setTopOnly에서 overlay가 위라 시작 버튼이 못 받음)
+        // depth 200 처방: 시작 버튼은 어떤 팝업이 떠있어도 input 항상 받음. 시작 시 scene.start로 즉시 전환되므로
+        //   팝업 위에 떠있는 시각적 어색함은 한 프레임 수준
+        const container = this.add.container(x, y).setDepth(200);
         const radius = 18;
         const SHADOW_OFFSET = 8;
         const HIT_PAD = 30;   // 히트영역 ±30px 확장 (이전 18 → 30, 손가락 빗나감 더 관대)
