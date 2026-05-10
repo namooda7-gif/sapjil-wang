@@ -2780,23 +2780,16 @@ export default class GameScene extends Phaser.Scene {
         // 구덩이 바닥 = 캐릭터 발 + HOLE_Y_OFFSET (살짝 아래)
         const holeBottomY = this.character.y + HOLE_Y_OFFSET;
 
-        // 높이 = (바닥 - 지표면) × PADDING_FACTOR, 캐릭터 가림 방지 cap
-        // 사장님 보고: 100탭 후 굴이 무한히 자라 캐릭터 머리까지 덮어 "캐릭터가 굴 밑에" 보임
-        // 처방: 굴 최대 높이를 캐릭터 displayHeight × 0.8로 제한 → 캐릭터 머리는 항상 굴 위로 노출
-        // 깊이감은 배경 빠른 스크롤(가속 4.5x)로 충분히 표현됨
-        const charH = (this.character && this.character.displayHeight) || 600;
-        const HOLE_MAX_H = charH * 0.8;
-        const rawH = (holeBottomY - surfaceY) * HOLE_PADDING_FACTOR;
-        const h = Math.max(HOLE_MIN_HEIGHT, Math.min(HOLE_MAX_H, rawH));
+        // 높이 = (바닥 - 지표면) × PADDING_FACTOR
+        // origin (0.5, 1.0)이라 displayHeight를 키우면 바닥은 holeBottomY 고정 + 위로 자람
+        const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) * HOLE_PADDING_FACTOR);
 
         this.holeImage.setDisplaySize(w, h);
-        // 하단 padding 보정 with cap:
-        //   기존: bottomPad = h × ratio → 깊이 깊어질수록 비례 증가
-        //   문제: hole.png ratio가 크면 깊은 곳에서 hole이 지표면 아래로 너무 내려가 어긋남
-        //   해결: cap 10px로 제한 → 깊이 무관하게 작은 보정만 (시각상 거의 안 보이는 수준)
-        const HOLE_BOTTOM_PAD_CAP = 10;
-        const rawPad = h * (this.holeBottomPaddingRatio || 0);
-        const bottomPad = Math.min(rawPad, HOLE_BOTTOM_PAD_CAP);
+        // 하단 padding 보정 — 사장님 보고: cap 10px 때문에 100탭 부근에서 시각 굴 바닥이 캐릭터 발보다 위로 어긋남
+        //   원인: rawPad = h × ratio가 cap 10 초과 → bottomPad 부족 → 시각 hole 하단 < character.y
+        //   처방: cap 제거, paddingRatio 측정값 그대로 적용 → 시각 굴 바닥 = 캐릭터 발 항상 일치
+        //   ratio가 부정확해서 hole이 지표면 아래로 어긋나는 문제 재발 시 별도 진단 필요
+        const bottomPad = h * (this.holeBottomPaddingRatio || 0);
         this.holeImage.y = holeBottomY + bottomPad;
     }
 
