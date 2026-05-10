@@ -317,6 +317,42 @@ const TREASURE_FORESHADOW_MS = 300;
 const JACKPOT_GHOST_COUNT    = 10;
 const JACKPOT_GHOST_DURATION = 3000;
 
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 코믹 디테일 (사장님 요청 — 땀방울 / 영혼 / 마음의 소리 / 쪽잠 / 코피)
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 땀방울: SOUL ≤ SWEAT_SOUL_THRESHOLD OR 콤보 ≥ SWEAT_COMBO_THRESHOLD에서 활성
+const SWEAT_SOUL_THRESHOLD   = 50;   // SOUL 50% 이하면 땀
+const SWEAT_COMBO_THRESHOLD  = 50;   // 콤보 50+면 땀
+const SWEAT_FREQ_NORMAL      = 800;  // 기본 빈도 (ms당 1방울)
+const SWEAT_FREQ_HOT         = 400;  // 콤보 100+ 굵게
+const SWEAT_FREQ_FLOOD       = 200;  // 콤보 200+ 폭포
+
+// 영혼: SOUL ≤ SOUL_GHOST_OUT에서 등장, ≥ SOUL_GHOST_IN에서 회수
+const SOUL_GHOST_OUT         = 20;   // 20% 이하 → 영혼 둥실
+const SOUL_GHOST_IN          = 30;   // 30% 회복 → 머리로 회수 (히스테리시스)
+
+// 마음의 소리 (혼잣말 monologue와 다른 톤 — 작고 흐릿한 thought bubble)
+const THOUGHT_INTERVAL_MIN   = 25000;  // 25~45초 간격 무작위
+const THOUGHT_INTERVAL_MAX   = 45000;
+const THOUGHT_LINES = [
+    '오늘만 일하고 그만둔다...',
+    '이 돈이면 라면 몇 봉...',
+    '팔이 떨어질 거 같아',
+    '사장님 어디 갔지',
+    '5분만 더...',
+    '집에 가고 싶다...',
+    '이 정도면 충분하지',
+    '월급은 언제...',
+    '나 왜 여기 있지',
+    '엄마 보고 싶다'
+];
+
+// 쪽잠: 무탭 N초 지나면 졸음. 다시 탭하면 깜짝 깨어남
+const SLEEP_AFTER_MS         = 30000;  // 30초 무탭 → 졸음
+
+// 코피: 콤보 100 도달 정확히 그 시점에 한 번 발동
+const NOSEBLEED_COMBO_TRIGGER = 100;
+
 export default class GameScene extends Phaser.Scene {
     constructor() {
         super({ key: 'GameScene' });
@@ -415,6 +451,16 @@ export default class GameScene extends Phaser.Scene {
         this.tapsSinceLastPowerDigCheck = 0;
         this.firstPowerDigEverSpawned = false;
         this.powerDigBox = null;
+
+        // ━━ 코믹 디테일 (땀/영혼/마음의 소리/쪽잠/코피) ━━
+        this.sweatEmitterLeft  = null;        // 캐릭터 머리 좌측 땀 emitter
+        this.sweatEmitterRight = null;        // 우측 땀 emitter
+        this.soulGhost = null;                // SOUL 낮을 때 머리 위 둥실 👻
+        this.soulGhostTween = null;
+        this.thoughtBubble = null;            // 현재 떠있는 마음의 소리 풍선
+        this.nextThoughtAt = 0;               // 다음 마음의 소리 시각 (this.time.now 기준)
+        this.sleepIcon = null;                // 졸음 💤 (쪽잠 활성 시)
+        this.sleepingActive = false;          // 쪽잠 중 (다음 탭에 깜짝 깨어남)
     }
 
     create() {
@@ -589,6 +635,34 @@ export default class GameScene extends Phaser.Scene {
 
         this.dirtEmitter       = this.add.particles(0, 0, '__dirtParticle', dirtConfig).setDepth(15);
         this.dirtEmitterSquare = this.add.particles(0, 0, '__dirtSquare',   dirtConfig).setDepth(15);
+
+        // ━━ 땀방울 파티클 (사장님 요청 — 코믹 디테일) ━━
+        // 작은 푸른 물방울 텍스처 즉석 생성, 머리 양옆에서 사선 아래로 튀김
+        // SOUL/콤보 임계 따라 update()에서 frequency 조절. 시작은 비활성(-1).
+        if (!this.textures.exists('__sweatDrop')) {
+            const wg = this.make.graphics({ x: 0, y: 0, add: false });
+            wg.fillStyle(0x6ec6ff, 1);                  // 푸른빛 물방울
+            wg.fillCircle(4, 4, 4);
+            wg.generateTexture('__sweatDrop', 8, 8);
+            wg.destroy();
+        }
+        const sweatBaseConfig = {
+            speed: { min: 120, max: 200 },
+            gravityY: 600,
+            lifespan: { min: 500, max: 800 },
+            scale: { start: 1.4, end: 0.6 },
+            alpha: { start: 1, end: 0 },
+            quantity: 1,
+            frequency: -1                                // 시작은 비활성
+        };
+        this.sweatEmitterLeft = this.add.particles(0, 0, '__sweatDrop', {
+            ...sweatBaseConfig,
+            angle: { min: 200, max: 240 }                // 좌측은 좌하 사선
+        }).setDepth(11);
+        this.sweatEmitterRight = this.add.particles(0, 0, '__sweatDrop', {
+            ...sweatBaseConfig,
+            angle: { min: 300, max: 340 }                // 우측은 우하 사선
+        }).setDepth(11);
 
         // 콤보 표시 — 캐릭터 머리 위 충분히 위로 (혼잣말 말풍선과 겹치지 않도록 130px 마진)
         // 말풍선은 머리 위 20px에 등장(높이 ~60~70px)이라 그 위로 더 띄워야 함
@@ -923,6 +997,14 @@ export default class GameScene extends Phaser.Scene {
         // ━━ 번아웃 중이면 dig 차단 (5초 자동 정지) ━━
         if (this.burnoutActive) return;
 
+        // ━━ 쪽잠 모드 깨어남 — 졸음 중이었으면 깜짝 깨어남만 처리하고 이번 탭은 dig 안 함 ━━
+        // 첫 탭은 깨어나는 데 소비, 다음 탭부터 정상 dig (모바일 게임 패턴 — 깨어남 시각 인지)
+        if (this.sleepingActive) {
+            this.exitSleepMode();
+            this.lastDigTime = this.time.now;
+            return;
+        }
+
         // ━━ POWER DIG 정조준 명중 체크 (장애물보다 먼저, 보너스 플래그만 세움) ━━
         // 박스 안에 떨어진 탭은 일반 dig + 보너스(코인×2, 콤보+5) 둘 다 적용
         // 빗나가도 정상 dig 진행 → 캐주얼 톤 유지
@@ -948,6 +1030,7 @@ export default class GameScene extends Phaser.Scene {
         else if (this.combo >= 50)  comboProtectMult = 1.33;
         const drinkComboMult = (this.activeBuffs.combo > now) ? DRINK_BONUS.combo : 1.0;
         const effComboWindow = this.comboWindow * Math.max(comboProtectMult, drinkComboMult);
+        const prevCombo = this.combo;
         if (now - this.lastDigTime < effComboWindow) {
             this.combo += 1;
         } else {
@@ -957,6 +1040,12 @@ export default class GameScene extends Phaser.Scene {
         // POWER DIG 명중 시 콤보 +5 추가 부스트 (정상 콤보 +1 위에 누적)
         if (powerDigHit) this.combo += POWERDIG_BONUS_COMBO_ADD;
         this.lastDigTime = now;
+
+        // ━━ 코피/초집중 — 콤보가 100 임계를 넘는 순간 한 번만 발동 ━━
+        // prevCombo<100 → combo>=100. POWER DIG +5 보너스로 한 번에 넘는 케이스도 OK
+        if (prevCombo < NOSEBLEED_COMBO_TRIGGER && this.combo >= NOSEBLEED_COMBO_TRIGGER) {
+            this.triggerNosebleed();
+        }
 
         // ━━ 진행 카운트 멀티플라이어 (강화: 100+ 단계 추가) ━━
         //   콤보:  10+ → 1.5x  /  50+ → 2.0x  /  100+ → 3.0x (NEW)
@@ -2100,34 +2189,46 @@ export default class GameScene extends Phaser.Scene {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 드링크 실제 낙하 (사전 배너 후 호출)
-    //   - 크기 확대(54→64px), 글로우 펄스
-    //   - 낙하 1500ms + Quad.in (Y는 가속 낙하)
-    //   - X는 사인파 나선 궤적 (좌우 흔들), 진폭은 점점 감소 → 마지막엔 캐릭터 위로 정확히 수렴
-    //   - 트레일 잔상 파티클 (등급 색)
+    //   - PNG 이미지 (이모지 폴백) + 글로우 펄스
+    //   - 회오리 궤적: 진폭 200, 사이클 3.5, quad 감쇠 → 캐릭터 위로 정확 수렴
+    //   - 불꽃 trail (등급색 위로 솟구침) + 등급색 trail
+    //   - 도착 시 불꽃 ring 폭발
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     launchDrinkFall(pickedKey) {
         if (!this.character) return;
         const def = DRINK_TYPES[pickedKey];
         const startX = this.character.x;
-        const startY = -90;
+        const startY = -110;
         const endX   = this.character.x;
         const endY   = this.character.y - this.character.displayHeight * 0.6;
-        const FALL_MS = 1500;
+        const FALL_MS = 1700;   // 회오리감 위해 약간 길게 (1500 → 1700)
 
-        // 나선 궤적 파라미터 — 사장님 요청 "원을 그리면서 떨어지면 좋겠어"
-        const SWAY_AMPLITUDE = 140;   // 좌우 진폭 (px) — 캐릭터 옆구리 너머까지 흔들려 가시성 확보
-        const SWAY_CYCLES    = 2.5;   // 낙하 동안 돌 회전 수 (2.5바퀴)
+        // 회오리 궤적 파라미터 — 사장님 요청 "원/회오리처럼 떨어지고"
+        const SWAY_AMPLITUDE = 220;   // 진폭 강화 (140 → 220, 캐릭터 옆 충분히 넘어감)
+        const SWAY_CYCLES    = 3.5;   // 회전 수 강화 (2.5 → 3.5)
 
         const container = this.add.container(startX, startY).setDepth(46);
 
-        // 글로우 배경 원 (등급 색) — 크기 50→60, 진하기 0.45→0.55
-        const glow = this.add.circle(0, 0, 60, def.color, 0.55).setStrokeStyle(5, def.color, 1);
-        const emoji = this.add.text(0, -4, def.emoji, { font: '64px sans-serif' }).setOrigin(0.5);
-        const nameTxt = this.add.text(0, 50, def.name, {
+        // 글로우 배경 원 (등급 색)
+        const glow = this.add.circle(0, 0, 70, def.color, 0.55).setStrokeStyle(5, def.color, 1);
+        container.add(glow);
+
+        // PNG 이미지 우선, 미로드 시 이모지 폴백
+        const pngKey = `drink_${pickedKey}`;
+        if (this.textures.exists(pngKey)) {
+            const img = this.add.image(0, -4, pngKey).setDisplaySize(110, 110);
+            container.add(img);
+        } else {
+            const emoji = this.add.text(0, -4, def.emoji, { font: '64px sans-serif' }).setOrigin(0.5);
+            container.add(emoji);
+        }
+
+        // 이름 라벨 (PNG/이모지 아래)
+        const nameTxt = this.add.text(0, 60, def.name, {
             font: 'bold 22px sans-serif', color: def.hex,
             stroke: '#000', strokeThickness: 4
         }).setOrigin(0.5);
-        container.add([glow, emoji, nameTxt]);
+        container.add(nameTxt);
 
         // glow 펄스 (낙하 동안 계속 깜빡 → 시선 끌기)
         const glowPulse = this.tweens.add({
@@ -2137,7 +2238,7 @@ export default class GameScene extends Phaser.Scene {
             duration: 380, yoyo: true, repeat: -1, ease: 'Sine.inOut'
         });
 
-        // 트레일 잔상 텍스처 (없으면 즉석 생성)
+        // 트레일 잔상 텍스처
         if (!this.textures.exists('__drinkTrail')) {
             const tg = this.make.graphics({ x: 0, y: 0, add: false });
             tg.fillStyle(0xffffff, 1);
@@ -2155,30 +2256,83 @@ export default class GameScene extends Phaser.Scene {
             quantity: 1
         }).setDepth(45);
 
-        // ━━ 낙하 (1500ms, Quad.in = 가속 낙하) — Y만 tween, X는 onUpdate에서 사인파 ━━
-        // 진폭은 (1 - progress) 곱해 점점 작아지게 → 마지막에 캐릭터 위로 정확히 수렴
+        // ━━ 불꽃 파티클 (사장님 요청 "불꽃이 피게") ━━
+        // 드링크 따라가며 빨강/주황/노랑 작은 불꽃이 위로 솟구침
+        if (!this.textures.exists('__fireParticle')) {
+            const fg = this.make.graphics({ x: 0, y: 0, add: false });
+            fg.fillStyle(0xffffff, 1);
+            fg.fillCircle(6, 6, 6);
+            fg.generateTexture('__fireParticle', 12, 12);
+            fg.destroy();
+        }
+        const fire = this.add.particles(0, 0, '__fireParticle', {
+            follow: container,
+            tint: [0xff3030, 0xff8a00, 0xffd700, 0xffffff],   // 빨강 → 주황 → 노랑 → 흰
+            lifespan: 600,
+            speedY: { min: -180, max: -120 },                  // 위로 솟구침
+            speedX: { min: -60, max: 60 },
+            scale: { start: 1.4, end: 0 },
+            alpha: { start: 0.95, end: 0 },
+            frequency: 35,
+            quantity: 2,
+            blendMode: 'ADD'                                    // 더 화려한 빛 합성
+        }).setDepth(46);
+
+        // ━━ 낙하 (1700ms, Quad.in = 가속) — 회오리 궤적 + quad 진폭 감쇠 ━━
         this.tweens.add({
             targets: container,
             y: endY,
             duration: FALL_MS, ease: 'Quad.in',
             onUpdate: (tween) => {
-                const t = tween.progress;                          // 0 ~ 1
-                const angleRad = t * Math.PI * 2 * SWAY_CYCLES;    // 회전 각도 누적
-                const decay    = 1 - t;                            // 진폭 감쇄 (끝에서 0)
+                const t = tween.progress;                              // 0 ~ 1
+                const angleRad = t * Math.PI * 2 * SWAY_CYCLES;        // 회전 각도 누적 (3.5바퀴)
+                const decay    = Math.pow(1 - t, 1.5);                 // quad 감쇠 — 끝에 부드럽게 수렴
                 container.x = endX + Math.sin(angleRad) * SWAY_AMPLITUDE * decay;
             }
         });
         this.tweens.add({
             targets: container,
-            angle: 540, duration: FALL_MS, ease: 'Linear'
+            angle: 720, duration: FALL_MS, ease: 'Linear'              // 2바퀴 spin (회오리감 강화)
         });
 
-        // 도착 시 캐치 + 트레일 정리
+        // 도착 시 캐치 + 정리 + 불꽃 ring 폭발
         this.time.delayedCall(FALL_MS, () => {
             if (glowPulse) glowPulse.stop();
             if (trail && trail.stop) trail.stop();
-            this.time.delayedCall(550, () => { if (trail && trail.scene) trail.destroy(); });
+            if (fire && fire.stop) fire.stop();
+            this.time.delayedCall(700, () => {
+                if (trail && trail.scene) trail.destroy();
+                if (fire && fire.scene)  fire.destroy();
+            });
+            this.spawnFireRing(this.character.x, endY, def.color);   // 불꽃 폭발
             this.catchDrink(pickedKey, container);
+        });
+    }
+
+    // 캐치 시점 불꽃 ring — 황금/등급색 외곽이 짧게 확산하며 페이드아웃
+    spawnFireRing(cx, cy, color) {
+        const ring = this.add.graphics().setDepth(47);
+        ring.lineStyle(8, color || 0xff8a00, 1);
+        ring.strokeCircle(0, 0, 40);
+        ring.setPosition(cx, cy);
+        this.tweens.add({
+            targets: ring,
+            scale: { from: 0.5, to: 2.4 },
+            alpha: { from: 0.95, to: 0 },
+            duration: 460, ease: 'Quad.out',
+            onComplete: () => ring.destroy()
+        });
+        // 외곽 빨강 ring 한 장 더 (밀도)
+        const innerRing = this.add.graphics().setDepth(47);
+        innerRing.lineStyle(5, 0xff3030, 1);
+        innerRing.strokeCircle(0, 0, 25);
+        innerRing.setPosition(cx, cy);
+        this.tweens.add({
+            targets: innerRing,
+            scale: { from: 0.4, to: 1.8 },
+            alpha: { from: 0.9, to: 0 },
+            duration: 380, ease: 'Quad.out',
+            onComplete: () => innerRing.destroy()
         });
     }
 
@@ -3067,6 +3221,246 @@ export default class GameScene extends Phaser.Scene {
             && !this.clearActive && !this.treasurePopupActive) {
             this.setCharacterState(this.getBaseCharacterState());
         }
+
+        // ━━ 코믹 디테일 모니터링 ━━
+        this.updateSweat();
+        this.updateSoulGhost();
+        this.updateThoughtBubble(time);
+        this.updateSleepMode(time);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 땀방울 — SOUL 낮거나 콤보 높을 때 캐릭터 머리 양옆에서 푸른 물방울
+    //   콤보 200+ 폭포, 100+ 굵게, 50+/SOUL 50% 이하 보통, 그 외 비활성
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    updateSweat() {
+        if (!this.character || !this.sweatEmitterLeft || !this.sweatEmitterRight) return;
+        if (this.clearActive || this.treasurePopupActive || this.burnoutActive) {
+            this.sweatEmitterLeft.frequency  = -1;
+            this.sweatEmitterRight.frequency = -1;
+            return;
+        }
+
+        // 머리 양옆 위치 갱신 (캐릭터 사이즈 변할 수 있음)
+        const headY = this.character.y - this.character.displayHeight + 30;
+        this.sweatEmitterLeft.setPosition(this.character.x - 50,  headY);
+        this.sweatEmitterRight.setPosition(this.character.x + 50, headY);
+
+        let freq = -1;
+        if (this.combo >= 200)                                          freq = SWEAT_FREQ_FLOOD;
+        else if (this.combo >= 100)                                     freq = SWEAT_FREQ_HOT;
+        else if (this.combo >= SWEAT_COMBO_THRESHOLD ||
+                 this.soulGauge <= SWEAT_SOUL_THRESHOLD)                freq = SWEAT_FREQ_NORMAL;
+
+        this.sweatEmitterLeft.frequency  = freq;
+        this.sweatEmitterRight.frequency = freq;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 영혼 빠져나감 — SOUL 20% 이하 → 머리 위 둥실, 30% 회복 → 머리로 회수
+    //   히스테리시스(20/30%)로 임계점 깜빡임 방지
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    updateSoulGhost() {
+        if (!this.character) return;
+        const shouldShow = this.soulGauge <= SOUL_GHOST_OUT;
+        const shouldHide = this.soulGauge >= SOUL_GHOST_IN;
+
+        if (shouldShow && !this.soulGhost) this.spawnSoulGhost();
+        else if (shouldHide && this.soulGhost) this.despawnSoulGhost();
+
+        // 둥실 위치 갱신 (캐릭터 따라옴)
+        if (this.soulGhost) {
+            const headY = this.character.y - this.character.displayHeight - 80;
+            this.soulGhost.x = this.character.x;
+            // y는 tween이 ±8 흔들고 있으니 baseY만 갱신
+            this.soulGhost._baseY = headY;
+        }
+    }
+
+    spawnSoulGhost() {
+        if (this.soulGhost) return;
+        const headY = this.character.y - this.character.displayHeight - 80;
+        const ghost = this.add.text(this.character.x, headY, '👻', {
+            font: '64px sans-serif'
+        }).setOrigin(0.5).setDepth(17).setAlpha(0);
+        ghost._baseY = headY;
+        this.soulGhost = ghost;
+
+        // 페이드인 + 둥실 yoyo
+        this.tweens.add({
+            targets: ghost,
+            alpha: { from: 0, to: 0.85 },
+            duration: 600
+        });
+        this.soulGhostTween = this.tweens.add({
+            targets: ghost,
+            y: headY - 16,
+            yoyo: true, repeat: -1,
+            duration: 1100, ease: 'Sine.inOut'
+        });
+
+        // 한 번 자조 라인 (이미 다른 라인 떠있으면 스킵)
+        if (!this.characterBubble) this.showCharacterMonologue('영혼 빠져나간다...');
+    }
+
+    despawnSoulGhost() {
+        if (!this.soulGhost) return;
+        const ghost = this.soulGhost;
+        this.soulGhost = null;
+        if (this.soulGhostTween) { this.soulGhostTween.stop(); this.soulGhostTween = null; }
+        // 머리로 회수 (역재생) — y가 머리 위치로 빨려 들어감 + 페이드아웃
+        const targetY = this.character.y - this.character.displayHeight + 20;
+        this.tweens.add({
+            targets: ghost,
+            y: targetY, alpha: 0, scale: 0.5,
+            duration: 500, ease: 'Quad.in',
+            onComplete: () => ghost.destroy()
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 마음의 소리 — 25~45초 무작위 간격, 작고 흐릿한 thought bubble
+    //   monologue(직접 외치는 톤)와 다른 internal voice. 말풍선 동시 노출 X
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    updateThoughtBubble(time) {
+        if (!this.character) return;
+        if (this.clearActive || this.treasurePopupActive || this.burnoutActive) return;
+        if (this.characterBubble) return;     // monologue 떠있으면 양보
+        if (this.thoughtBubble) return;       // 이미 표시 중
+
+        // 첫 호출에 nextThoughtAt 초기화 (constructor에선 time 모름)
+        if (!this.nextThoughtAt) {
+            this.nextThoughtAt = time + Phaser.Math.Between(THOUGHT_INTERVAL_MIN, THOUGHT_INTERVAL_MAX);
+            return;
+        }
+        if (time < this.nextThoughtAt) return;
+
+        const line = THOUGHT_LINES[Math.floor(Math.random() * THOUGHT_LINES.length)];
+        this.spawnThoughtBubble(line);
+        this.nextThoughtAt = time + Phaser.Math.Between(THOUGHT_INTERVAL_MIN, THOUGHT_INTERVAL_MAX);
+    }
+
+    spawnThoughtBubble(text) {
+        // 캐릭터 우측 상단 (등 뒤 ~) 작고 흐릿한 구름 풍선
+        const x = this.character.x + 110;
+        const y = this.character.y - this.character.displayHeight + 50;
+
+        const txt = this.add.text(0, 0, text, {
+            font: 'italic 18px sans-serif',
+            color: '#444444',
+            align: 'center'
+        }).setOrigin(0.5);
+
+        const padX = 14, padY = 8;
+        const w = txt.width + padX * 2;
+        const h = txt.height + padY * 2;
+
+        const g = this.add.graphics();
+        g.fillStyle(0xffffff, 0.78);                       // 반투명 흰
+        g.fillRoundedRect(-w / 2, -h / 2, w, h, 14);
+        g.lineStyle(1, 0xaaaaaa, 0.7);
+        g.strokeRoundedRect(-w / 2, -h / 2, w, h, 14);
+        // 작은 구름 방울 2개 (캐릭터 쪽 아래로 향함)
+        g.fillStyle(0xffffff, 0.78);
+        g.fillCircle(-w / 2 + 8, h / 2 + 6, 4);
+        g.fillCircle(-w / 2 - 2, h / 2 + 14, 3);
+
+        const container = this.add.container(x, y, [g, txt]).setDepth(18).setAlpha(0);
+        this.thoughtBubble = container;
+
+        // 페이드인 → 2.5초 유지 → 페이드아웃
+        this.tweens.add({ targets: container, alpha: 0.9, duration: 350 });
+        this.tweens.add({
+            targets: container,
+            alpha: 0,
+            delay: 350 + 2500,
+            duration: 500,
+            onComplete: () => {
+                if (this.thoughtBubble === container) this.thoughtBubble = null;
+                container.destroy();
+            }
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 쪽잠 — 30초 무탭이면 머리 위 💤 + tired. 다음 dig() 시 깜짝 깨어남
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    updateSleepMode(time) {
+        if (!this.character) return;
+        if (this.clearActive || this.treasurePopupActive || this.burnoutActive) return;
+
+        const idleMs = time - (this.lastDigTime || 0);
+        if (!this.sleepingActive && this.lastDigTime > 0 && idleMs >= SLEEP_AFTER_MS) {
+            this.enterSleepMode();
+        }
+    }
+
+    enterSleepMode() {
+        if (this.sleepingActive) return;
+        this.sleepingActive = true;
+        const headY = this.character.y - this.character.displayHeight - 60;
+        this.sleepIcon = this.add.text(this.character.x + 50, headY, '💤', {
+            font: '48px sans-serif'
+        }).setOrigin(0.5).setDepth(17).setAlpha(0);
+        this.tweens.add({ targets: this.sleepIcon, alpha: 0.95, duration: 400 });
+        // 둥실 + 살짝 회전
+        this.tweens.add({
+            targets: this.sleepIcon,
+            y: headY - 10,
+            angle: { from: -8, to: 8 },
+            yoyo: true, repeat: -1,
+            duration: 1200, ease: 'Sine.inOut'
+        });
+        // 입가에 작은 침 (☆) 풍자 라인
+        if (!this.characterBubble) this.showCharacterMonologue('코오오...');
+    }
+
+    exitSleepMode() {
+        if (!this.sleepingActive) return;
+        this.sleepingActive = false;
+        if (this.sleepIcon) {
+            const icon = this.sleepIcon;
+            this.sleepIcon = null;
+            this.tweens.killTweensOf(icon);
+            this.tweens.add({
+                targets: icon,
+                alpha: 0, scale: 1.5,
+                duration: 220,
+                onComplete: () => icon.destroy()
+            });
+        }
+        // 깜짝 깨어남: surprise 텍스처 + 화면 살짝 흔들 + "헉!"
+        this.setCharacterState('surprise');
+        this.cameras.main.shake(180, 0.006);
+        if (!this.characterBubble) this.showCharacterMonologue('헉! 사장님?!');
+        // 1.2초 후 surprise 자동 복귀 (기존 surpriseRevertTimer 패턴)
+        if (this.surpriseRevertTimer) this.surpriseRevertTimer.remove(false);
+        this.surpriseRevertTimer = this.time.delayedCall(1200, () => {
+            this.surpriseRevertTimer = null;
+        });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 코피/초집중 — 콤보 100 정확히 도달 시 한 번 발동
+    //   코에서 빨간 점 툭 + 화면 빨간 flash + "🩸 초집중 모드!" 텍스트
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    triggerNosebleed() {
+        if (!this.character) return;
+        // 화면 빨간 flash
+        this.cameras.main.flash(220, 200, 30, 30);
+        // 코 위치에서 빨간 점 떨어짐 (캐릭터 얼굴 ~중앙 위쪽)
+        const noseX = this.character.x;
+        const noseY = this.character.y - this.character.displayHeight * 0.65;
+        const drop = this.add.circle(noseX, noseY, 6, 0xc8102e, 1).setDepth(17);
+        this.tweens.add({
+            targets: drop,
+            y: noseY + 90,
+            alpha: 0,
+            duration: 700, ease: 'Quad.in',
+            onComplete: () => drop.destroy()
+        });
+        // 초집중 텍스트 (캐릭터 옆에 솟구침)
+        this.showFloatingText(this.character.x + 80, noseY, '🩸 초집중!', '#ff3030');
     }
 
     _isInMoundBBox(x, y) {
@@ -3242,9 +3636,9 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // 탭 시 호출 - dig 텍스처로 전환 후 0.3초 뒤 베이스 복귀
-    //   돌·타일(hard soil)이면 dig_hard 텍스처 → 강타 모션
+    //   사장님 요청: 모션 임팩트 강화 위해 dig_hard 80% / dig 20% 비율로 표출
+    //   (이전엔 layer soilType이 hard일 때만 dig_hard, 일반 soil은 dig)
     //   surprise/panic 등 어떤 transient 중이라도 탭하면 즉시 dig 텍스처로 전환
-    //   (표정은 그대로인데 효과음·스크롤만 나오는 어색함 차단)
     playDigAnimation() {
         if (this.treasurePopupActive || this.clearActive) return;
 
@@ -3252,10 +3646,10 @@ export default class GameScene extends Phaser.Scene {
         this.cancelSurpriseRevert();
         this.cancelPanicRevert();
 
-        const isHard = this.layerData
-            && this.soundManager
-            && this.soundManager.isHardSoil(this.layerData.soilType);
-        this.setCharacterState(isHard ? 'dig_hard' : 'dig');
+        // 80% dig_hard, 20% dig (soilType 무관 RNG)
+        // — 캐릭터 강타 모션이 더 자주 보여 게임감 강화
+        const useHardTexture = Math.random() < 0.8;
+        this.setCharacterState(useHardTexture ? 'dig_hard' : 'dig');
 
         this.cancelDigRevert();
         this.digRevertTimer = this.time.delayedCall(300, () => {

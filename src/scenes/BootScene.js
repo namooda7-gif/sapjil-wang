@@ -58,6 +58,12 @@ export default class BootScene extends Phaser.Scene {
             });
         }
 
+        // ━━━ 에너지 드링크 PNG 4종 (이모지 → PNG 교체, 인지도 강화) ━━━
+        // 사장님 Gemini 워크플로 도착 (2026-05-10): 박카스/핫식스/레드불 패러디 + 황금 슈퍼
+        // 미로드 시 launchDrinkFall에서 def.emoji 폴백
+        ['drink_sapcas', 'drink_hotsaps', 'drink_redsap', 'drink_energasap']
+            .forEach(id => this.load.image(id, `assets/drinks/${id}.png`));
+
         // ━━━ 흙더미 이미지 (오른쪽용 1장 → 왼쪽은 flipX로 재활용) ━━━
         this.load.image('mound_right', 'assets/mound_right.png');
 
