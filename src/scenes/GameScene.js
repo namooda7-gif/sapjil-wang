@@ -43,7 +43,18 @@ const TREASURE_BASE_RATE = 0.05;
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const BG_IMAGE_HEIGHT = 2580;       // 배경 이미지 원본 세로 픽셀
 const BG_IMAGE_WIDTH  = 720;        // 배경 이미지 원본 가로 픽셀
-const SURFACE_TEXTURE_Y = 903;      // 지표면 라인의 텍스처 row (= 1290 × 0.70)
+const SURFACE_TEXTURE_Y = 903;      // 지표면 라인의 기본 텍스처 row (layer_001 기준, = 1290 × 0.70)
+                                    // 2026-05-11: 자산별로 다를 수 있음. measureSurfaceRow 자동 측정 + override map 사용
+                                    // 사장님 보고: layer_003/004/005는 굴 시작이 지표면 아래로 어긋남 → 실제 surface 더 위
+
+// 자산별 surface texture row override (사장님 검수 후 수동 미세 조정용)
+//   값이 있으면 measureSurfaceRow 자동 측정 무시하고 이 값 사용
+//   값 없으면 measureSurfaceRow 자동 측정값 → 측정 실패 시 SURFACE_TEXTURE_Y 폴백
+//   콘솔 로그에서 measured 값 확인 후 부정확하면 여기 명시
+const LAYER_SURFACE_Y_OVERRIDE = {
+    // 'layer_001': 903,   // 자동 측정이 정확하면 생략
+    // 'layer_003': 873,   // 예시: layer_003 자산이 surface row 873이라면
+};
 
 // 캐릭터를 지표면 위로 살짝 띄우기 위한 오프셋 (사장님 피드백: 화면 세로 약 3%)
 //   - 음수 = 위로 이동
@@ -931,6 +942,17 @@ export default class GameScene extends Phaser.Scene {
         const bgKey = `${layer.id}_bg`;
         this.usingLoopTexture = false;
         this.virtualScrollY = 0;
+
+        // ━━ 자산별 surface row 자동 측정 (2026-05-11) ━━
+        //   사장님 보고: 레이어 3/4/5는 굴 시작이 지표면 아래로 어긋남
+        //   원인: 자산마다 SURFACE_TEXTURE_Y(=903) 가정과 다른 row에 지표면 픽셀
+        //   처방: brightness drop으로 자동 검출 + override map 미세 조정 지원
+        const override = LAYER_SURFACE_Y_OVERRIDE[layer.id];
+        const measured = (override == null) ? this.measureSurfaceRow(bgKey) : null;
+        this.currentSurfaceTextureY =
+            (override != null)  ? override  :
+            (measured != null)  ? measured  : SURFACE_TEXTURE_Y;
+        console.log(`[surface row] ${layer.id}: measured=${measured} override=${override} → ${this.currentSurfaceTextureY}`);
         if (this.bgImage && this.textures.exists(bgKey)) {
             this.bgImage.setTexture(bgKey);
             this.applyBackgroundCoverFit();
@@ -1143,16 +1165,15 @@ export default class GameScene extends Phaser.Scene {
 
             if (!this.usingLoopTexture) {
                 const newTilePos = this.bgImage.tilePositionY + scrollAmount;
-                // ━━ 동적 전환 row (2026-05-11) ━━
-                //   원인: 화면 gameH가 LOOP_TEXTURE_HEIGHT(=1280)보다 큰 디바이스에서
-                //         tilePos > BG_IMAGE_HEIGHT - gameH 되면 원본 텍스처 자체 wrap
-                //         → 화면 하단에 row 0(지상) 노출 = 사장님 "지상 잔존" 보고
-                //   처방: LOOP_START_ROW와 (BG - gameH - 16) 중 작은 값으로 더 일찍 전환
-                //         → 원본 wrap이 화면에 보이기 전에 loop 캔버스로 안전 전환
+                // ━━ 동적 전환 row (2026-05-11 2차 강화) ━━
+                //   1차(margin 16): layer_001(100탭) 콤보 끊기면 transition 미달
+                //                   → clearLayer 추가 +800 스크롤 시 원본 wrap → 지상 잔존
+                //   2차(margin 400): 짧은 레이어/콤보 끊김 케이스 다 커버하도록 일찍 전환
+                //                    → transition 시점은 좀 이르지만 시각 연속성 유지됨
                 const gameH = this.cameras.main.height;
                 const transitionRow = Math.min(
                     LOOP_START_ROW,
-                    Math.max(0, BG_IMAGE_HEIGHT - gameH - 16)
+                    Math.max(0, BG_IMAGE_HEIGHT - gameH - 400)
                 );
                 if (newTilePos >= transitionRow) {
                     // 임계점 도달 → 루프 텍스처로 전환 (시각적으로 seamless)
@@ -2977,9 +2998,33 @@ export default class GameScene extends Phaser.Scene {
         }
 
         // 배경 빠르게 위로 쭉 스크롤 (1초) → 1.5초 뒤 loadLayer가 새 레이어 텍스처로 교체
-        // 어차피 1.5초 후 loadLayer가 텍스처/tilePos 모두 리셋하므로 cap 불필요
-        // (루프 텍스처 모드여도 자동 wrap이라 시각적 안전)
+        //
+        // ━━ 클리어 직전 강제 transition (2026-05-11) ━━
+        //   사장님 보고: 레벨 1에 다 판 후 지상 이미지 잔존
+        //   원인: 짧은 레이어 + 콤보 끊김 시 transition 미달 → clearLayer +800 스크롤이
+        //         원본 텍스처(2580 height) wrap 일으켜 row 0(지상)이 화면 하단에 노출
+        //   처방: clearLayer 시작 시 아직 transition 안 됐으면 강제 전환 → tween은 loop 텍스처 위에서 일어남
         if (this.bgImage && this.bgImage.type === 'TileSprite') {
+            if (!this.usingLoopTexture) {
+                const gameH = this.cameras.main.height;
+                const transitionRow = Math.min(
+                    LOOP_START_ROW,
+                    Math.max(0, BG_IMAGE_HEIGHT - gameH - 400)
+                );
+                const loopKey = this.ensureLoopTexture(this.layerData && this.layerData.id, transitionRow);
+                if (loopKey) {
+                    const currentTilePos = this.bgImage.tilePositionY;
+                    this.bgImage.setTexture(loopKey);
+                    this.applyBackgroundCoverFit();
+                    // 현재 텍스처 위치 보존: tilePos가 transitionRow 미만이면 0으로,
+                    // transitionRow 넘었으면 overshoot로 (시각 연속성)
+                    this.bgImage.tilePositionY = Math.max(0, currentTilePos - transitionRow);
+                    this.usingLoopTexture = true;
+                    const loopTex = this.textures.get(loopKey).getSourceImage();
+                    this.loopTextureHeight = (loopTex && loopTex.height) || LOOP_TEXTURE_HEIGHT;
+                    console.log(`[clear transition] forced loop tex: tilePos ${currentTilePos} → ${this.bgImage.tilePositionY}`);
+                }
+            }
             this.tweens.add({
                 targets: this.bgImage,
                 tilePositionY: this.bgImage.tilePositionY + 800,
@@ -3149,7 +3194,9 @@ export default class GameScene extends Phaser.Scene {
         // → loadLayer에서 0으로 리셋됨 (새 레이어 hole = MIN_HEIGHT)
         const bgScrollY = this.virtualScrollY || 0;
         const tileScale = (this.bgImage && this.bgImage.tileScaleY)   ? this.bgImage.tileScaleY   : 1;
-        const surfaceY  = (SURFACE_TEXTURE_Y - bgScrollY) * tileScale;
+        // 자산별 surface row (loadLayer에서 측정·캐싱). 폴백 SURFACE_TEXTURE_Y(=903)
+        const surfaceTexY = (this.currentSurfaceTextureY != null) ? this.currentSurfaceTextureY : SURFACE_TEXTURE_Y;
+        const surfaceY  = (surfaceTexY - bgScrollY) * tileScale;
 
         // 구덩이 바닥 = 캐릭터 발 + HOLE_Y_OFFSET (살짝 아래)
         const holeBottomY = this.character.y + HOLE_Y_OFFSET;
@@ -3177,6 +3224,68 @@ export default class GameScene extends Phaser.Scene {
         // origin (0.5, 1.0) → holeImage.y = 이미지 바닥(투명 padding 포함) 픽셀 좌표
         // hole 내부 상단을 surfaceY에 anchor → 바닥은 innerR 수식으로 holeBottomY 자동 정렬
         this.holeImage.y = surfaceY + h * (1 - topR - topP);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 레이어 배경의 지표면 row 자동 측정 (brightness drop detection) — 2026-05-11 추가
+    //   원리: 각 row의 평균 brightness 계산 → window 30 row 전후 평균 차이 최대인 row
+    //         (지상=밝음, 지하=어두움 가정에서 가장 큰 어두워짐 변화점)
+    //   사용: loadLayer에서 1회 측정, this.currentSurfaceTextureY에 캐싱
+    //         자산이 가정과 다르면 LAYER_SURFACE_Y_OVERRIDE 맵으로 수동 보정
+    //   비용: 한 번에 720×2580 픽셀 스캔 → 모바일에서도 수십 ms 수준 (loadLayer 시 1회)
+    //   실패: null 반환 → 폴백 SURFACE_TEXTURE_Y
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    measureSurfaceRow(textureKey) {
+        if (!this.textures.exists(textureKey)) return null;
+        const tex = this.textures.get(textureKey).getSourceImage();
+        if (!tex || !tex.width || !tex.height) return null;
+        const w = tex.width, h = tex.height;
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return null;
+            ctx.drawImage(tex, 0, 0);
+            const data = ctx.getImageData(0, 0, w, h).data;
+
+            // 각 row의 평균 brightness (가로 stripe 평균)
+            const rowB = new Float32Array(h);
+            for (let y = 0; y < h; y++) {
+                let sum = 0;
+                for (let x = 0; x < w; x++) {
+                    const i = (y * w + x) * 4;
+                    sum += (data[i] + data[i + 1] + data[i + 2]) / 3;
+                }
+                rowB[y] = sum / w;
+            }
+
+            // window 30 row 전후 평균 차이 (brightness drop) 최대인 row 찾기
+            // 검색 범위: row 200 ~ h × 0.6 (지표면은 보통 텍스처 상단 1/3 ~ 1/2 부근)
+            const win = 30;
+            const yMin = Math.max(win, 200);
+            const yMax = Math.min(h - win, Math.floor(h * 0.6));
+            let maxDrop = 0;
+            let surfaceRow = null;
+            for (let y = yMin; y < yMax; y++) {
+                let before = 0, after = 0;
+                for (let i = 0; i < win; i++) {
+                    before += rowB[y - win + i];
+                    after  += rowB[y + i];
+                }
+                const drop = (before - after) / win;
+                if (drop > maxDrop) {
+                    maxDrop = drop;
+                    surfaceRow = y;
+                }
+            }
+            // 매우 약한 drop이면 측정 실패로 간주 (drop < 8 brightness units)
+            if (maxDrop < 8) return null;
+            return surfaceRow;
+        } catch (e) {
+            console.warn(`[surface row] 측정 실패 (${textureKey}):`, e);
+            return null;
+        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
