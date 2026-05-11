@@ -534,11 +534,15 @@ export default class MenuScene extends Phaser.Scene {
         //     3) 캐릭터(우측, depth 5) hit 영역과 시작 버튼 hit 영역 일부 겹침 → 캐릭터가 가로챌 위험
         //        (해결: createInteractiveCharacter에서 신규 유저 setInteractive 비활성화)
         //   시작 버튼은 단순 진입(드래그 의미 X) → pointerdown 즉시 처리가 가장 안정.
+        //
+        // 2026-05-11 추가: 6번 시도 모두 부분 효과만. DOM HTML <button> 우회를 동시 사용
+        //   - this._starting 플래그는 Phaser 경로와 DOM 경로 공유 → 더블 진입 차단
+        //   - 둘 다 작동: 안정성 이중화 (어느 한 경로가 막혀도 다른 경로로 진입)
         // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-        let starting = false;
-        container.on('pointerdown', () => {
-            if (starting) return;     // 더블 탭/연타 중복 진입 차단
-            starting = true;
+        this._starting = false;
+        const startGame = () => {
+            if (this._starting) return;     // 더블 탭/연타/DOM·Phaser 중복 차단
+            this._starting = true;
             // AudioContext 명시 resume — 모바일 첫 사용자 제스처에서만 unlock 가능.
             // Phaser가 자동 처리하지만 일부 WebView에서 첫 탭이 unlock에만 소비되는 케이스 보강.
             try {
@@ -550,17 +554,107 @@ export default class MenuScene extends Phaser.Scene {
             this.spawnButtonRipple(x, y);
             this.tryRequestFullscreen();
             this.scene.start('GameScene');
-        });
+        };
+        container.on('pointerdown', startGame);
         // 시각 복원 (pointerdown 즉시 scene.start 하지만, 만약 어떤 이유로 scene 전환이 늦으면 복원)
         const restore = () => {
-            if (starting) return;
+            if (this._starting) return;
             container.setScale(1);
         };
         container.on('pointerup', restore);
         container.on('pointerout', restore);
         container.on('pointerupoutside', restore);
 
+        // ━━ DOM HTML <button> 우회 ━━
+        // Phaser input 시스템 완전 우회 — 브라우저 네이티브 input이 가로챔
+        // 게임 좌표(x, y, hitW, hitH) → CSS 좌표로 변환해 캔버스 위 투명 버튼 배치
+        const hitW = w + HIT_PAD * 2;
+        const hitH = h + SHADOW_OFFSET + HIT_PAD * 2;
+        this.attachDOMStartOverlay(x, y, hitW, hitH, startGame);
+
         return container;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // DOM HTML <button> 우회 — Phaser input 외 직접 브라우저 native input
+    //   배경: 메모리 project_unresolved_attempts_2026_05_10.md — Phaser input 6번 시도 모두 실패
+    //   원리: 캔버스 위에 z-index 9999 투명 <button>을 시작 버튼 위치에 겹침
+    //         → 터치는 브라우저 → button → click 핸들러로 직진 (Phaser input 우회)
+    //   좌표: scale.canvasBounds + scale.displayScale 로 게임 좌표 → CSS 픽셀 변환
+    //   리사이즈: 주소창 토글/회전 시 canvasBounds 변하므로 reposition 재호출
+    //   클린업: scene shutdown/destroy 시 DOM 제거 (다음 진입 시 중복 방지)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    attachDOMStartOverlay(gameX, gameY, gameW, gameH, onStartCallback) {
+        // 이전 인스턴스(scene 재시작 등) 정리
+        const existing = document.getElementById('__dom-start-overlay');
+        if (existing && existing.parentNode) existing.remove();
+
+        const btn = document.createElement('button');
+        btn.id = '__dom-start-overlay';
+        btn.setAttribute('aria-label', '삽질하러 가기');
+        btn.style.cssText = [
+            'position: fixed',
+            'z-index: 9999',
+            'background: transparent',
+            'border: none',
+            'outline: none',
+            'padding: 0',
+            'margin: 0',
+            'cursor: pointer',
+            'touch-action: manipulation',
+            '-webkit-tap-highlight-color: transparent',
+            '-webkit-user-select: none',
+            'user-select: none'
+        ].join(';');
+        document.body.appendChild(btn);
+
+        const reposition = () => {
+            const bounds = this.scale && this.scale.canvasBounds;
+            const ds     = this.scale && this.scale.displayScale;
+            if (!bounds || !ds || !ds.x || !ds.y) return;
+            const cssW = gameW / ds.x;
+            const cssH = gameH / ds.y;
+            const cssX = bounds.left + gameX / ds.x - cssW / 2;
+            const cssY = bounds.top  + gameY / ds.y - cssH / 2;
+            btn.style.left   = `${cssX}px`;
+            btn.style.top    = `${cssY}px`;
+            btn.style.width  = `${cssW}px`;
+            btn.style.height = `${cssH}px`;
+        };
+        reposition();
+
+        const onPointer = (e) => {
+            if (e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+            if (typeof onStartCallback === 'function') onStartCallback();
+        };
+        // pointerdown 즉시 처리 (Phaser 경로와 동일 전략)
+        btn.addEventListener('pointerdown', onPointer, { passive: false });
+        // 폴백: pointer event 미지원 환경 (구버전 안드로이드 WebView 등)
+        btn.addEventListener('touchstart', onPointer, { passive: false });
+        btn.addEventListener('click',      onPointer);
+
+        // 리사이즈 시 위치 재계산
+        this.scale.on('resize', reposition);
+        if (window.visualViewport) {
+            window.visualViewport.addEventListener('resize', reposition);
+        }
+
+        // 씬 종료/파괴 시 청소
+        const cleanup = () => {
+            btn.removeEventListener('pointerdown', onPointer);
+            btn.removeEventListener('touchstart',  onPointer);
+            btn.removeEventListener('click',       onPointer);
+            this.scale.off('resize', reposition);
+            if (window.visualViewport) {
+                window.visualViewport.removeEventListener('resize', reposition);
+            }
+            if (btn.parentNode) btn.remove();
+        };
+        this.events.once(Phaser.Scenes.Events.SHUTDOWN, cleanup);
+        this.events.once(Phaser.Scenes.Events.DESTROY,  cleanup);
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

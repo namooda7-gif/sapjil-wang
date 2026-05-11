@@ -102,7 +102,13 @@ const HOLE_MAX_HEIGHT        = 120;      // (현재 미사용)
 // hole.png는 origin (0.5, 1.0)이라 holeImage.y = character.y면 이미지 하단=발 라인
 const HOLE_Y_OFFSET          = 0;        // 캐릭터 발 라인에 굴 바닥 정렬
 // hole.png 실측: 768×1376, 상단 padding 0.107, 하단 0.109 → PADDING_FACTOR = 1/(1-0.216) = 1.275
+// (drawHole는 측정 ratio 동적 적용으로 전환됨 — 이 상수는 폴백 참조용으로만 유지)
 const HOLE_PADDING_FACTOR    = 1.275;
+// 2026-05-11 추가: 측정한 alpha-0 padding 위에 painted dirt rim이 추가로 보임
+//   사장님 보고 "굴 위쪽이 지표면보다 아래로" — perceived hole top이 측정 topR보다 아래 위치
+//   이 ratio만큼 hole image를 위로 밀어, 시각적 hole 내부 상단(= rim 안쪽)이 surfaceY와 정렬
+//   사장님 인게임 테스트 후 미세 조정 가능 (rim 두께에 따라 0.02~0.08 범위)
+const HOLE_VISUAL_TOP_PERCEPTION = 0.04;
 
 // ━━ 흙더미 시스템 (mound_right.png 이미지) ━━
 //   - 오른쪽용 1장만 로드, 왼쪽은 flipX로 좌우 반전 재활용
@@ -573,12 +579,12 @@ export default class GameScene extends Phaser.Scene {
             .setDisplaySize(holeW, HOLE_MIN_HEIGHT)
             .setVisible(false);
 
-        // hole.png 자체의 하단 투명 padding 자동 측정 (drawHole에서 보정용)
-        //   문제: hole 이미지에 하단 padding이 있으면 origin (0.5, 1.0) 기준 이미지 하단(=character.y)이
-        //         시각적 굴 바닥보다 아래에 있어 캐릭터 발이 굴 밖으로 노출됨 (layer 3+에서 사용자 인지)
-        //   해결: PNG 픽셀 분석해서 하단부터 첫 alpha>0 row까지를 padding ratio로 보관
-        //         drawHole에서 이미지를 그만큼 아래로 내려서 시각 바닥이 character.y와 일치하게
-        this.holeBottomPaddingRatio = this.measureBottomPaddingRatio('hole');
+        // hole.png 자체의 상하 투명 padding 자동 측정 (drawHole에서 보정용)
+        //   하단: origin (0.5, 1.0) 기준 이미지 하단이 시각 바닥보다 아래라 그만큼 위로 밀어야 함
+        //   상단: 굴 위쪽을 surfaceY에 anchor하기 위해 필요 (2026-05-11 추가)
+        //   측정 실패 시 폴백: 사장님 PowerShell 측정값 (top 0.107 / bottom 0.109)
+        this.holeBottomPaddingRatio = this.measureBottomPaddingRatio('hole') || 0.109;
+        this.holeTopPaddingRatio    = this.measureTopPaddingRatio('hole')    || 0.107;
 
         // 흙더미 좌/우 (mound_right.png, depth 11 = 캐릭터(10)보다 앞)
         // 캐릭터 발 앞쪽에 쌓이는 입체감 → 진짜 땅속에 파묻힌 느낌
@@ -1131,27 +1137,42 @@ export default class GameScene extends Phaser.Scene {
 
             if (!this.usingLoopTexture) {
                 const newTilePos = this.bgImage.tilePositionY + scrollAmount;
-                if (newTilePos >= LOOP_START_ROW) {
+                // ━━ 동적 전환 row (2026-05-11) ━━
+                //   원인: 화면 gameH가 LOOP_TEXTURE_HEIGHT(=1280)보다 큰 디바이스에서
+                //         tilePos > BG_IMAGE_HEIGHT - gameH 되면 원본 텍스처 자체 wrap
+                //         → 화면 하단에 row 0(지상) 노출 = 사장님 "지상 잔존" 보고
+                //   처방: LOOP_START_ROW와 (BG - gameH - 16) 중 작은 값으로 더 일찍 전환
+                //         → 원본 wrap이 화면에 보이기 전에 loop 캔버스로 안전 전환
+                const gameH = this.cameras.main.height;
+                const transitionRow = Math.min(
+                    LOOP_START_ROW,
+                    Math.max(0, BG_IMAGE_HEIGHT - gameH - 16)
+                );
+                if (newTilePos >= transitionRow) {
                     // 임계점 도달 → 루프 텍스처로 전환 (시각적으로 seamless)
-                    const loopKey = this.ensureLoopTexture(this.layerData && this.layerData.id);
+                    const loopKey = this.ensureLoopTexture(this.layerData && this.layerData.id, transitionRow);
                     if (loopKey) {
                         this.bgImage.setTexture(loopKey);
                         this.applyBackgroundCoverFit();
-                        // 루프 텍스처 row 0 = 원본 row LOOP_START_ROW와 동일한 픽셀
-                        // 따라서 overshoot(=newTilePos - LOOP_START_ROW)만 새 tilePos로 설정
-                        this.bgImage.tilePositionY = newTilePos - LOOP_START_ROW;
+                        // 루프 캔버스 row 0 = 원본 row transitionRow와 동일한 픽셀
+                        // overshoot(= newTilePos - transitionRow)만 새 tilePos로 설정 → seamless
+                        this.bgImage.tilePositionY = newTilePos - transitionRow;
                         this.usingLoopTexture = true;
+                        // Phase 2 wrap modulo용 실제 캔버스 높이 저장
+                        const loopTex = this.textures.get(loopKey).getSourceImage();
+                        this.loopTextureHeight = (loopTex && loopTex.height) || LOOP_TEXTURE_HEIGHT;
                     } else {
-                        // 루프 텍스처 생성 실패(에셋 누락 등) - 안전망: 원본 끝에서 정지
-                        this.bgImage.tilePositionY = LOOP_START_ROW;
+                        // 루프 텍스처 생성 실패(에셋 누락 등) - 안전망: 전환 row에서 정지
+                        this.bgImage.tilePositionY = transitionRow;
                     }
                 } else {
                     this.bgImage.tilePositionY = newTilePos;
                 }
             } else {
-                // Phase 2: 루프 텍스처 - 높이로 모듈로 연산하여 무한 wrap
+                // Phase 2: 루프 텍스처 - 실제 캔버스 height로 모듈로 (multiple repeats 반영)
+                const loopH = this.loopTextureHeight || LOOP_TEXTURE_HEIGHT;
                 this.bgImage.tilePositionY =
-                    (this.bgImage.tilePositionY + scrollAmount) % LOOP_TEXTURE_HEIGHT;
+                    (this.bgImage.tilePositionY + scrollAmount) % loopH;
             }
         }
 
@@ -2969,17 +2990,59 @@ export default class GameScene extends Phaser.Scene {
         // 구덩이 바닥 = 캐릭터 발 + HOLE_Y_OFFSET (살짝 아래)
         const holeBottomY = this.character.y + HOLE_Y_OFFSET;
 
-        // 높이 = (바닥 - 지표면) × PADDING_FACTOR
-        // origin (0.5, 1.0)이라 displayHeight를 키우면 바닥은 holeBottomY 고정 + 위로 자람
-        const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) * HOLE_PADDING_FACTOR);
+        // ━━ surfaceY 기준 직접 anchored (2026-05-11) ━━
+        //   배경: 4회 시도 모두 부분 효과만 (PADDING_FACTOR 1.0/1.10/1.25/1.275 다 시도)
+        //   메모리 next attempt 2번 + 3번 적용 — 같은 처방 반복 금지 규칙 준수.
+        //   - 두 padding ratio 동적 측정 (PADDING_FACTOR 고정 상수 의존 X)
+        //   - 굴 시각 상단을 surfaceY에 직접 anchor (예전: bottom anchor)
+        //   - HOLE_VISUAL_TOP_PERCEPTION: 측정 alpha-0 top 위 painted rim 두께 보정
+        //
+        //   수식:
+        //     visibleR = 1 - topR - botR  (시각 흙 영역 비율)
+        //     h × visibleR = holeBottomY - surfaceY  → h = (holeBottomY - surfaceY) / visibleR
+        //     visual hole 내부 상단 = holeImage.y - h × (1 - topR - perception)
+        //     이를 surfaceY와 정렬: holeImage.y = surfaceY + h × (1 - topR - perception)
+        const topR = (this.holeTopPaddingRatio    != null) ? this.holeTopPaddingRatio    : 0.107;
+        const botR = (this.holeBottomPaddingRatio != null) ? this.holeBottomPaddingRatio : 0.109;
+        const visibleR = Math.max(0.01, 1 - topR - botR);
+        const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) / visibleR);
 
         this.holeImage.setDisplaySize(w, h);
-        // 하단 padding 보정 — 사장님 보고: cap 10px 때문에 100탭 부근에서 시각 굴 바닥이 캐릭터 발보다 위로 어긋남
-        //   원인: rawPad = h × ratio가 cap 10 초과 → bottomPad 부족 → 시각 hole 하단 < character.y
-        //   처방: cap 제거, paddingRatio 측정값 그대로 적용 → 시각 굴 바닥 = 캐릭터 발 항상 일치
-        //   ratio가 부정확해서 hole이 지표면 아래로 어긋나는 문제 재발 시 별도 진단 필요
-        const bottomPad = h * (this.holeBottomPaddingRatio || 0);
-        this.holeImage.y = holeBottomY + bottomPad;
+        // origin (0.5, 1.0) → holeImage.y = 이미지 바닥(투명 padding 포함) 픽셀 좌표
+        // perception 만큼 위로 밀어 painted rim 안쪽이 surfaceY와 정렬
+        this.holeImage.y = surfaceY + h * (1 - topR - HOLE_VISUAL_TOP_PERCEPTION);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // PNG 텍스처의 상단 투명 padding 자동 측정 (0~1 ratio) — 2026-05-11 추가
+    //   measureBottomPaddingRatio의 미러. 위에서 아래로 스캔해 첫 alpha>0 row 찾음
+    //   drawHole에서 surfaceY-anchored 계산에 사용
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    measureTopPaddingRatio(textureKey) {
+        if (!this.textures.exists(textureKey)) return 0;
+        const tex = this.textures.get(textureKey).getSourceImage();
+        if (!tex || !tex.width || !tex.height) return 0;
+        const w = tex.width, h = tex.height;
+        try {
+            const canvas = document.createElement('canvas');
+            canvas.width = w;
+            canvas.height = h;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return 0;
+            ctx.drawImage(tex, 0, 0);
+            const data = ctx.getImageData(0, 0, w, h).data;
+            // 상단 row부터 아래로 → 첫 alpha > 0 row 찾기
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    if (data[(y * w + x) * 4 + 3] > 0) {
+                        return y / h;
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`[hole top padding] 측정 실패 (${textureKey}):`, e);
+        }
+        return 0;
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3028,32 +3091,50 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 지하 무한 루프 텍스처 캐싱 (B-2 방식)
-    //   - 원본 레이어 텍스처(720×2580)에서 row LOOP_START_ROW 이하만 잘라내
-    //     별도 캔버스 텍스처로 등록 → 그 레이어의 지하 패턴이 wrap-friendly
-    //   - 한 레이어당 1번만 생성하고 캐시 (텍스처 manager에 저장)
-    //   - 키: `${layerId}_bg_loop`
+    // 지하 무한 루프 텍스처 캐싱 (B-2 방식) — 2026-05-11 강화
+    //   - 원본 레이어 텍스처(720×2580)에서 row `transitionRow` 이하만 잘라내
+    //   - 화면이 1패치보다 큰 디바이스에서 wrap이 화면 안에 보이지 않게
+    //     같은 패치를 세로로 반복해 canvas height >= gameH + 256 보장
+    //   - 키: `${layerId}_bg_loop_${transitionRow}` (디바이스 종횡비별 분리 캐시)
+    //   - console.log 진단: 화면 height·repeats·totalH 확인 가능
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    ensureLoopTexture(layerId) {
+    ensureLoopTexture(layerId, transitionRow) {
         if (!layerId) return null;
-        const loopKey = `${layerId}_bg_loop`;
+        const tRow = (transitionRow != null) ? transitionRow : LOOP_START_ROW;
+        const loopKey = `${layerId}_bg_loop_${tRow}`;
         if (this.textures.exists(loopKey)) return loopKey;
 
         const srcKey = `${layerId}_bg`;
-        if (!this.textures.exists(srcKey)) return null;
+        if (!this.textures.exists(srcKey)) {
+            console.warn(`[loop tex] 소스 텍스처 없음 (${srcKey})`);
+            return null;
+        }
 
         const srcImg = this.textures.get(srcKey).getSourceImage();
-        if (!srcImg || !srcImg.width || !srcImg.height) return null;
+        if (!srcImg || !srcImg.width || !srcImg.height) {
+            console.warn(`[loop tex] 소스 이미지 비어있음 (${srcKey})`);
+            return null;
+        }
 
         const w = srcImg.width;
-        const h = LOOP_TEXTURE_HEIGHT;
+        const srcLoopH = Math.max(1, srcImg.height - tRow);  // 잘라낼 underground 분량
+        // Phase 2 wrap이 화면 안에서 안 보이도록 canvas height >= gameH + 256
+        // 1패치만으론 작은 폰만 커버 → 큰 폰에선 2~3 repeats 필요
+        const gameH = this.cameras.main.height;
+        const minH = gameH + 256;
+        const repeats = Math.max(2, Math.ceil(minH / srcLoopH));
+        const totalH = srcLoopH * repeats;
+
         const canvas = document.createElement('canvas');
         canvas.width = w;
-        canvas.height = h;
+        canvas.height = totalH;
         const ctx = canvas.getContext('2d');
-        // 원본 row LOOP_START_ROW부터 끝까지를 새 캔버스 row 0부터 그림
-        ctx.drawImage(srcImg, 0, LOOP_START_ROW, w, h, 0, 0, w, h);
+        // 같은 underground 패치를 세로로 반복 (seam은 underground-to-underground라 시각적 충격 적음)
+        for (let i = 0; i < repeats; i++) {
+            ctx.drawImage(srcImg, 0, tRow, w, srcLoopH, 0, i * srcLoopH, w, srcLoopH);
+        }
         this.textures.addCanvas(loopKey, canvas);
+        console.log(`[loop tex] OK ${loopKey}: tRow=${tRow} srcLoopH=${srcLoopH} repeats=${repeats} totalH=${totalH} gameH=${gameH}`);
         return loopKey;
     }
 
