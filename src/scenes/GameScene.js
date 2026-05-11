@@ -181,15 +181,16 @@ const OBSTACLE_TAP_INTERVAL  = 20;        // 매 N탭마다 무조건 등장 (�
 const OBSTACLE_BOOST_MS      = 10000;     // 보물 확률 부스트 지속 (10초)
 const OBSTACLE_BOOST_AMOUNT  = 0.20;      // +20% 추가 확률
 // type별로 sound 키를 부여해 SoundManager.playObstacleHitSound(type)에서 거친 사운드 분기
+// 2026-05-11 사장님 요청: 장애물이 너무 쉽게 깨짐 → tapsRequired 2배 + emoji 30% 큼 + 균열 시각
 const OBSTACLE_TYPES = {
-    rock:    { emoji: '🪨', name: '단단한 바위',    tapsRequired: 3, tint: 0x808080 },
-    bone:    { emoji: '🦴', name: '거대한 뼈',      tapsRequired: 5, tint: 0xf0e6c8 },
-    root:    { emoji: '🪵', name: '굵은 뿌리',      tapsRequired: 4, tint: 0x6b4423 },
-    ice:     { emoji: '🧊', name: '얼음 덩어리',    tapsRequired: 4, tint: 0x9bd4e4 },
-    iron:    { emoji: '🔩', name: '낡은 철판',      tapsRequired: 6, tint: 0x4a4a4a },
-    skull:   { emoji: '💀', name: '수상한 두개골',  tapsRequired: 5, tint: 0xe8e0c8 },
-    pot:     { emoji: '🏺', name: '깨진 항아리',    tapsRequired: 3, tint: 0xa0522d },
-    crystal: { emoji: '💎', name: '수정 결정체',    tapsRequired: 5, tint: 0x7df9ff }
+    rock:    { emoji: '🪨', name: '단단한 바위',    tapsRequired: 6,  tint: 0x808080 },
+    bone:    { emoji: '🦴', name: '거대한 뼈',      tapsRequired: 10, tint: 0xf0e6c8 },
+    root:    { emoji: '🪵', name: '굵은 뿌리',      tapsRequired: 8,  tint: 0x6b4423 },
+    ice:     { emoji: '🧊', name: '얼음 덩어리',    tapsRequired: 8,  tint: 0x9bd4e4 },
+    iron:    { emoji: '🔩', name: '낡은 철판',      tapsRequired: 12, tint: 0x4a4a4a },
+    skull:   { emoji: '💀', name: '수상한 두개골',  tapsRequired: 10, tint: 0xe8e0c8 },
+    pot:     { emoji: '🏺', name: '깨진 항아리',    tapsRequired: 6,  tint: 0xa0522d },
+    crystal: { emoji: '💎', name: '수정 결정체',    tapsRequired: 10, tint: 0x7df9ff }
 };
 const OBSTACLE_KEYS = Object.keys(OBSTACLE_TYPES);
 
@@ -1176,16 +1177,16 @@ export default class GameScene extends Phaser.Scene {
                     Math.max(0, BG_IMAGE_HEIGHT - gameH - 400)
                 );
                 if (newTilePos >= transitionRow) {
-                    // 임계점 도달 → 루프 텍스처로 전환 (시각적으로 seamless)
+                    // 임계점 도달 → 루프 텍스처로 전환
                     const loopKey = this.ensureLoopTexture(this.layerData && this.layerData.id, transitionRow);
                     if (loopKey) {
                         this.bgImage.setTexture(loopKey);
                         this.applyBackgroundCoverFit();
-                        // 루프 캔버스 row 0 = 원본 row transitionRow와 동일한 픽셀
-                        // overshoot(= newTilePos - transitionRow)만 새 tilePos로 설정 → seamless
-                        this.bgImage.tilePositionY = newTilePos - transitionRow;
+                        // loop 캔버스 row 0 = 원본 row LOOP_START_ROW (cutFromRow 강제)
+                        // 짧은 레이어(transitionRow < LOOP_START_ROW)면 시각 점프 발생
+                        // 긴 레이어는 transitionRow >= LOOP_START_ROW라 seamless 유지
+                        this.bgImage.tilePositionY = Math.max(0, newTilePos - LOOP_START_ROW);
                         this.usingLoopTexture = true;
-                        // Phase 2 wrap modulo용 실제 캔버스 높이 저장
                         const loopTex = this.textures.get(loopKey).getSourceImage();
                         this.loopTextureHeight = (loopTex && loopTex.height) || LOOP_TEXTURE_HEIGHT;
                     } else {
@@ -3016,9 +3017,8 @@ export default class GameScene extends Phaser.Scene {
                     const currentTilePos = this.bgImage.tilePositionY;
                     this.bgImage.setTexture(loopKey);
                     this.applyBackgroundCoverFit();
-                    // 현재 텍스처 위치 보존: tilePos가 transitionRow 미만이면 0으로,
-                    // transitionRow 넘었으면 overshoot로 (시각 연속성)
-                    this.bgImage.tilePositionY = Math.max(0, currentTilePos - transitionRow);
+                    // loop 캔버스 row 0 = 원본 LOOP_START_ROW. 시각 점프 가능 but 클리어 연출 중이라 묻힘
+                    this.bgImage.tilePositionY = Math.max(0, currentTilePos - LOOP_START_ROW);
                     this.usingLoopTexture = true;
                     const loopTex = this.textures.get(loopKey).getSourceImage();
                     this.loopTextureHeight = (loopTex && loopTex.height) || LOOP_TEXTURE_HEIGHT;
@@ -3260,28 +3260,35 @@ export default class GameScene extends Phaser.Scene {
                 rowB[y] = sum / w;
             }
 
-            // window 30 row 전후 평균 차이 (brightness drop) 최대인 row 찾기
-            // 검색 범위: row 200 ~ h × 0.6 (지표면은 보통 텍스처 상단 1/3 ~ 1/2 부근)
+            // 2026-05-11 2차 강화: 사장님 보고 layer_004(찜질방) 굴이 지표면 위로 솟음
+            //   원인 가설: 찜질방 자산은 천장-방, 방-바닥 등 여러 brightness drop 존재
+            //              "max drop"이 천장-방 경계(더 위 row)를 surface로 오인
+            //   처방: "deepest qualifying drop" — drop >= maxDrop × 0.5 중 가장 깊은 row
+            //         → 자산 구조상 가장 아래쪽 큰 drop이 실제 surface일 가능성
             const win = 30;
             const yMin = Math.max(win, 200);
             const yMax = Math.min(h - win, Math.floor(h * 0.6));
+
+            // 1차: 모든 drop 계산 + maxDrop 확인
+            const drops = new Float32Array(h);
             let maxDrop = 0;
-            let surfaceRow = null;
             for (let y = yMin; y < yMax; y++) {
                 let before = 0, after = 0;
                 for (let i = 0; i < win; i++) {
                     before += rowB[y - win + i];
                     after  += rowB[y + i];
                 }
-                const drop = (before - after) / win;
-                if (drop > maxDrop) {
-                    maxDrop = drop;
-                    surfaceRow = y;
-                }
+                drops[y] = (before - after) / win;
+                if (drops[y] > maxDrop) maxDrop = drops[y];
             }
-            // 매우 약한 drop이면 측정 실패로 간주 (drop < 8 brightness units)
             if (maxDrop < 8) return null;
-            return surfaceRow;
+
+            // 2차: drop >= max × 0.5 중 가장 깊은 row (아래에서 위로 스캔)
+            const threshold = Math.max(8, maxDrop * 0.5);
+            for (let y = yMax - 1; y >= yMin; y--) {
+                if (drops[y] >= threshold) return y;
+            }
+            return null;
         } catch (e) {
             console.warn(`[surface row] 측정 실패 (${textureKey}):`, e);
             return null;
@@ -3376,7 +3383,13 @@ export default class GameScene extends Phaser.Scene {
     ensureLoopTexture(layerId, transitionRow) {
         if (!layerId) return null;
         const tRow = (transitionRow != null) ? transitionRow : LOOP_START_ROW;
-        const loopKey = `${layerId}_bg_loop_${tRow}`;
+        // 2026-05-11 2차 강화: 사장님 보고 layer_006(콘서트장) 460/940탭에서 응원봉 잔존
+        //   원인: transitionRow가 LOOP_START_ROW(1300)보다 작으면 loop 캔버스에 지상(응원봉 등) 영역 포함
+        //   처방: cut row를 항상 LOOP_START_ROW 이상으로 강제 → loop 캔버스는 underground only 보장
+        //   부작용: transition 시 시각 점프(transitionRow → LOOP_START_ROW row, 짧은 레이어만)
+        //          짧은 레이어(100탭)는 dig 동안 카메라 셰이크에 묻혀 인식 안 될 가능성
+        const cutFromRow = Math.max(tRow, LOOP_START_ROW);
+        const loopKey = `${layerId}_bg_loop_${cutFromRow}`;
         if (this.textures.exists(loopKey)) return loopKey;
 
         const srcKey = `${layerId}_bg`;
@@ -3392,9 +3405,8 @@ export default class GameScene extends Phaser.Scene {
         }
 
         const w = srcImg.width;
-        const srcLoopH = Math.max(1, srcImg.height - tRow);  // 잘라낼 underground 분량
+        const srcLoopH = Math.max(1, srcImg.height - cutFromRow);  // 잘라낼 underground 분량
         // Phase 2 wrap이 화면 안에서 안 보이도록 canvas height >= gameH + 256
-        // 1패치만으론 작은 폰만 커버 → 큰 폰에선 2~3 repeats 필요
         const gameH = this.cameras.main.height;
         const minH = gameH + 256;
         const repeats = Math.max(2, Math.ceil(minH / srcLoopH));
@@ -3406,10 +3418,10 @@ export default class GameScene extends Phaser.Scene {
         const ctx = canvas.getContext('2d');
         // 같은 underground 패치를 세로로 반복 (seam은 underground-to-underground라 시각적 충격 적음)
         for (let i = 0; i < repeats; i++) {
-            ctx.drawImage(srcImg, 0, tRow, w, srcLoopH, 0, i * srcLoopH, w, srcLoopH);
+            ctx.drawImage(srcImg, 0, cutFromRow, w, srcLoopH, 0, i * srcLoopH, w, srcLoopH);
         }
         this.textures.addCanvas(loopKey, canvas);
-        console.log(`[loop tex] OK ${loopKey}: tRow=${tRow} srcLoopH=${srcLoopH} repeats=${repeats} totalH=${totalH} gameH=${gameH}`);
+        console.log(`[loop tex] OK ${loopKey}: tRow=${tRow} cutFromRow=${cutFromRow} srcLoopH=${srcLoopH} repeats=${repeats} totalH=${totalH} gameH=${gameH}`);
         return loopKey;
     }
 
@@ -3953,6 +3965,36 @@ export default class GameScene extends Phaser.Scene {
         this.character.setTexture(key);
         // 텍스처마다 원본 픽셀 크기가 다르면 표시 크기가 튀므로 매번 재계산
         this.applyCharacterDisplaySize();
+
+        // ━━ idle 코피 팡 (2026-05-11 사장님 요청 "쉴때 idle상태에서 코피가 팡 터지게") ━━
+        //   idle 진입 시 15~25초 무작위 타이머 스케줄
+        //   타이머 만료 시 여전히 idle이면 triggerNosebleed (코피 PNG + scale 펑 + 화면 flash)
+        //   다른 상태 전환 시 타이머 취소 → 매 dig마다 idle 카운트다운 리셋 (실제 "쉰" 시간만 카운트)
+        this.scheduleIdleNosebleed(state);
+    }
+
+    // idle 진입 시 무작위 시간 후 코피 팡 효과 스케줄
+    scheduleIdleNosebleed(state) {
+        if (this._idleNoseTimer) {
+            this._idleNoseTimer.remove(false);
+            this._idleNoseTimer = null;
+        }
+        if (state !== 'idle' || this.clearActive) return;
+        // 너무 자주 안 나오게 cooldown (마지막 발동 후 30초 이내면 skip)
+        const now = this.time.now;
+        if (this._idleNoseCooldownUntil && now < this._idleNoseCooldownUntil) return;
+        const delay = Phaser.Math.Between(15000, 25000);
+        this._idleNoseTimer = this.time.delayedCall(delay, () => {
+            this._idleNoseTimer = null;
+            // 여전히 idle이고 게임 활성 상태일 때만 발동
+            if (this.clearActive) return;
+            if (!this.character || !this.character.texture) return;
+            const curKey = this.character.texture.key;
+            if (curKey !== `${this.characterId}_idle`) return;
+            this.triggerNosebleed();
+            // 30초 cooldown (너무 자주 안 나오게)
+            this._idleNoseCooldownUntil = this.time.now + 30000;
+        });
     }
 
     // 보관된 charTargetHeight 기준으로 displaySize 재적용 (가로는 원본 비율 유지)
@@ -4339,39 +4381,44 @@ export default class GameScene extends Phaser.Scene {
 
         const container = this.add.container(cx, cy).setDepth(45);
 
-        // ━━ 사장님 피드백: 보물과 장애물이 둘 다 원이라 구분 안 됨 ━━
-        //   → 장애물은 배경 원 제거, 이모지를 더 크게(110→160), 외곽에 def.tint 글로우
-        //   → 결과: 보물=원 안 이미지 / 장애물=글로우 도는 큰 이모지 (시각 분리)
+        // ━━ 사장님 피드백 ━━
+        //   1차: 보물과 장애물 구분 → 배경 원 제거, 이모지 크게, 외곽 글로우
+        //   2차(2026-05-11): "이미지 30% 더 크게 더 선명하게" + 깨지는 모습
+        //     - emoji 160 → 208 (30%)
+        //     - 균열 graphics overlay (tapsLeft 진행도에 따라 균열 증가)
 
-        // 장애물 이모지 (110→160, 외곽 글로우 효과)
+        // 장애물 이모지 (160 → 208, 외곽 글로우 더 강화)
         const emoji = this.add.text(0, -10, def.emoji, {
-            font: '160px sans-serif'
+            font: '208px sans-serif'
         }).setOrigin(0.5);
-        // def.tint 색으로 외곽에 빛나는 글로우 (blur 25, fill에만 그림자)
+        // def.tint 색 + 흰색 이중 글로우 (선명도 ↑)
         const tintHex = '#' + def.tint.toString(16).padStart(6, '0');
-        emoji.setShadow(0, 0, tintHex, 25, false, true);
+        emoji.setShadow(0, 0, tintHex, 30, false, true);
 
-        // 이름 라벨 (이모지 확대분만큼 +20px 내림: y=75→95)
-        const nameLabel = this.add.text(0, 95, def.name, {
-            font: 'bold 22px sans-serif',
-            color: '#ffffff', stroke: '#000', strokeThickness: 4
+        // 균열 graphics overlay — 탭 진행에 따라 균열 라인 증가 (depth 안에서 emoji 위)
+        const crackGfx = this.add.graphics();
+
+        // 이름 라벨 (이모지 확대분 따라 +30px 내림)
+        const nameLabel = this.add.text(0, 125, def.name, {
+            font: 'bold 24px sans-serif',
+            color: '#ffffff', stroke: '#000', strokeThickness: 5
         }).setOrigin(0.5);
 
-        // HP 바 (탭 진행도) — y=110→130
-        const hpBarW = 160;
-        const hpBarH = 12;
-        const hpBarBg = this.add.rectangle(0, 130, hpBarW, hpBarH, 0x333333, 1)
+        // HP 바 (탭 진행도) — 크기/위치 강화
+        const hpBarW = 200;
+        const hpBarH = 14;
+        const hpBarBg = this.add.rectangle(0, 162, hpBarW, hpBarH, 0x333333, 1)
             .setStrokeStyle(2, 0xffffff);
-        const hpBar = this.add.rectangle(-hpBarW / 2, 130, hpBarW, hpBarH, 0xffd700, 1)
+        const hpBar = this.add.rectangle(-hpBarW / 2, 162, hpBarW, hpBarH, 0xffd700, 1)
             .setOrigin(0, 0.5);
 
-        // 안내 텍스트 (탭 X번 더) — y=138→158
-        const tapHint = this.add.text(0, 158, `👆 탭 ${def.tapsRequired}회!`, {
-            font: 'bold 20px sans-serif',
-            color: '#ffd700', stroke: '#000', strokeThickness: 3
+        // 안내 텍스트 (탭 X번 더)
+        const tapHint = this.add.text(0, 192, `👆 탭 ${def.tapsRequired}회!`, {
+            font: 'bold 22px sans-serif',
+            color: '#ffd700', stroke: '#000', strokeThickness: 4
         }).setOrigin(0.5);
 
-        container.add([emoji, nameLabel, hpBarBg, hpBar, tapHint]);
+        container.add([emoji, crackGfx, nameLabel, hpBarBg, hpBar, tapHint]);
 
         // 등장 애니 (위에서 떨어짐 + 스케일 펑)
         container.y = -100;
@@ -4395,8 +4442,53 @@ export default class GameScene extends Phaser.Scene {
             def,
             tapsLeft: def.tapsRequired,
             tapsTotal: def.tapsRequired,
-            container, emoji, hpBar, hpBarW, tapHint
+            container, emoji, crackGfx, hpBar, hpBarW, tapHint
         };
+    }
+
+    // ━━ 장애물 균열 시각 (2026-05-11) ━━
+    //   tapsLeft / tapsTotal 비율로 진행도 0~1 계산
+    //   진행도 0.2/0.4/0.6/0.8/0.95 단계마다 균열 라인 1개씩 추가 (총 0~5개)
+    //   라인은 emoji 중심에서 무작위 방향으로 사선
+    drawObstacleCracks(ob) {
+        if (!ob || !ob.crackGfx) return;
+        const g = ob.crackGfx;
+        g.clear();
+        const progress = 1 - (ob.tapsLeft / ob.tapsTotal);  // 0(처음) ~ 1(부숨 직전)
+        // 균열 단계: 진행도별 라인 개수
+        const stages = [0.2, 0.4, 0.6, 0.8, 0.95];
+        const lineCount = stages.filter(s => progress >= s).length;
+        if (lineCount === 0) return;
+
+        // 균열 라인: emoji 가운데(-10, -10) 기준 짧은 사선들
+        const cx = 0, cy = -10;
+        const baseRadius = 70;        // 이모지 거의 가장자리까지
+        g.lineStyle(4, 0xffffff, 0.95);
+        // 시드 고정 패턴 (같은 장애물에 같은 균열) — ob.type 기반
+        const seed = ob.type.charCodeAt(0);
+        for (let i = 0; i < lineCount; i++) {
+            const angle = ((seed * 31 + i * 73) % 360) * Math.PI / 180;
+            const len = baseRadius * (0.6 + ((seed + i * 17) % 40) / 100);
+            const startR = baseRadius * 0.2;
+            const x1 = cx + Math.cos(angle) * startR;
+            const y1 = cy + Math.sin(angle) * startR;
+            const x2 = cx + Math.cos(angle) * len;
+            const y2 = cy + Math.sin(angle) * len;
+            // 메인 균열
+            g.lineStyle(5, 0x000000, 1);
+            g.lineBetween(x1, y1, x2, y2);
+            g.lineStyle(2, 0xffffff, 0.85);
+            g.lineBetween(x1, y1, x2, y2);
+            // 분기 (한 단계 좁은 사선)
+            const branchAngle = angle + ((seed + i) % 2 === 0 ? 0.4 : -0.4);
+            const branchLen = len * 0.5;
+            const bx2 = x1 + Math.cos(branchAngle) * branchLen;
+            const by2 = y1 + Math.sin(branchAngle) * branchLen;
+            g.lineStyle(3, 0x000000, 1);
+            g.lineBetween(x1, y1, bx2, by2);
+            g.lineStyle(1.5, 0xffffff, 0.85);
+            g.lineBetween(x1, y1, bx2, by2);
+        }
     }
 
     // 장애물 활성 중 dig() 대신 호출됨 - 탭으로 부수기
@@ -4431,11 +4523,18 @@ export default class GameScene extends Phaser.Scene {
         const ratio = ob.tapsLeft / ob.tapsTotal;
         ob.hpBar.width = ob.hpBarW * ratio;
 
-        // 사운드 + 햅틱 + 카메라 (장애물 타입별 거친 사운드 + 더 강한 진동)
+        // 균열 시각 갱신 (탭 진행도에 따라 균열 라인 증가)
+        this.drawObstacleCracks(ob);
+
+        // 사운드 + 햅틱 + 카메라 — 2026-05-11 강화: 사장님 "타격 음향 더 강하게"
+        // 같은 사운드 두 번 겹쳐 재생해 묵직함 증폭 (clip 분리: 메인 + 100ms 지연 sub)
         this.soundManager.playObstacleHitSound(ob.type);
-        this.soundManager.triggerObstacleHitHaptic();   // 4펄스 묵직 진동 (hard보다 한 단계 위)
-        this.cameras.main.shake(220, 0.024);            // 셰이크 강화: 160/0.018 → 220/0.024
-        this.cameras.main.flash(120, 255, 230, 200, false);  // 노란 플래시로 충돌 강조
+        this.time.delayedCall(60, () => {
+            if (this.soundManager) this.soundManager.playObstacleHitSound(ob.type);
+        });
+        this.soundManager.triggerObstacleHitHaptic();   // 4펄스 묵직 진동
+        this.cameras.main.shake(280, 0.032);            // 220/0.024 → 280/0.032 (더 묵직)
+        this.cameras.main.flash(150, 255, 230, 200, false);  // 120 → 150ms 노란 플래시
 
         // 안내 텍스트 갱신
         if (ob.tapsLeft > 0) {
