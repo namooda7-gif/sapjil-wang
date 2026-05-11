@@ -2401,24 +2401,59 @@ export default class GameScene extends Phaser.Scene {
         this.spawnCharacterBackFire();
     }
 
-    // 드링크 마신 직후 캐릭터 뒤 불꽃 폭발 (1.5초 활성)
-    //   depth 9: 캐릭터(10) 뒤로 → 캐릭터 실루엣 살리면서 불꽃 후광 효과
-    //   기존 __fireParticle 텍스처 재사용
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 드링크 마신 직후 캐릭터 뒤 "힘 솟음" 폭발 효과 — 2026-05-11 강화
+    //   메모리 next attempt: "약해" 보고 → 자산 발주 없이 코드 내 절차적 강화
+    //   1) procedural aura PNG (방사선 + 후광 + 별) — 캐릭터 뒤(depth 9)에 폭발 → 회전 + 페이드
+    //   2) 파티클 강화 (frequency 25→15, quantity 3→6, scale 2.0→3.0)
+    //   3) 카메라 짧은 황금 플래시
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     spawnCharacterBackFire() {
         if (!this.character) return;
+        this.ensurePowerupAuraTexture();
+
         const cx = this.character.x;
         const cy = this.character.y - this.character.displayHeight * 0.5;  // 캐릭터 가운데
 
+        // ━━ aura PNG: 화면 펑 → 부풀음 → 페이드 ━━
+        // 크기: 캐릭터 displayHeight × 1.6 (캐릭터 살짝 감쌈, 너무 크지 않게)
+        const auraSize = this.character.displayHeight * 1.6;
+        const targetScale = auraSize / 512;
+        const aura = this.add.image(cx, cy, '__powerupAura')
+            .setDepth(9)
+            .setAlpha(0)
+            .setScale(targetScale * 0.35)
+            .setBlendMode(Phaser.BlendModes.ADD);
+
+        // 회전: 천천히 1바퀴 (만화 임팩트)
+        this.tweens.add({
+            targets: aura,
+            angle: 90,
+            duration: 1700,
+            ease: 'Linear'
+        });
+        // 스케일/알파 체인: 폭발(200ms) → 펄스(900ms) → 페이드(600ms)
+        this.tweens.chain({
+            targets: aura,
+            tweens: [
+                { scale: targetScale,         alpha: 1, duration: 200, ease: 'Back.out' },
+                { scale: targetScale * 1.12,            duration: 450, yoyo: true, ease: 'Sine.inOut' },
+                { scale: targetScale * 1.35,  alpha: 0, duration: 600, ease: 'Quad.in' }
+            ],
+            onComplete: () => { if (aura && aura.scene) aura.destroy(); }
+        });
+
+        // ━━ 파티클 강화 (frequency 25→15, quantity 3→6, scale 2.0→3.0) ━━
         const emitter = this.add.particles(cx, cy, '__fireParticle', {
             tint: [0xff3030, 0xff8a00, 0xffd700, 0xffffff],
             lifespan: 900,
-            speedY: { min: -180, max: -60 },         // 위로 솟구침
-            speedX: { min: -160, max: 160 },         // 좌우 사방
-            scale: { start: 2.0, end: 0 },
+            speedY: { min: -240, max: -90 },         // 위로 솟구침 (강화)
+            speedX: { min: -220, max: 220 },         // 좌우 사방 (강화)
+            scale: { start: 3.0, end: 0 },
             alpha: { start: 1.0, end: 0 },
-            frequency: 25,
-            quantity: 3,
-            blendMode: 'ADD'                          // 화려한 빛 합성
+            frequency: 15,
+            quantity: 6,
+            blendMode: 'ADD'
         }).setDepth(9);
 
         this.time.delayedCall(1500, () => {
@@ -2427,6 +2462,98 @@ export default class GameScene extends Phaser.Scene {
                 if (emitter && emitter.scene) emitter.destroy();
             });
         });
+
+        // ━━ 짧은 황금 카메라 플래시 (0.15초) ━━
+        this.cameras.main.flash(150, 255, 215, 0, false);
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // "힘 솟음" aura 텍스처 절차적 생성 (2026-05-11) — Gemini 자산 없이 코드만으로
+    //   512×512 투명 캔버스에:
+    //     1) 황금 radial gradient 후광
+    //     2) 12개 방사선 (긴/짧음 교차 → 만화 임팩트)
+    //     3) 4개 별 (외곽에 흩어짐)
+    //   한 번만 생성되어 텍스처 매니저에 캐싱
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    ensurePowerupAuraTexture() {
+        if (this.textures.exists('__powerupAura')) return;
+        const size = 512;
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        const cx = size / 2, cy = size / 2;
+        const maxR = size * 0.48;
+
+        // 별 그리기 helper (꼭짓점 N개)
+        const drawStar = (cx2, cy2, points, outerR, innerR) => {
+            ctx.beginPath();
+            for (let i = 0; i < points * 2; i++) {
+                const angle = (i / (points * 2)) * Math.PI * 2 - Math.PI / 2;
+                const r = (i % 2 === 0) ? outerR : innerR;
+                const px = cx2 + Math.cos(angle) * r;
+                const py = cy2 + Math.sin(angle) * r;
+                if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
+            }
+            ctx.closePath();
+        };
+
+        // 1) 황금 radial 후광 (흰→황금→주황→투명)
+        const grad = ctx.createRadialGradient(cx, cy, 0, cx, cy, maxR);
+        grad.addColorStop(0.00, 'rgba(255, 255, 220, 1.0)');
+        grad.addColorStop(0.20, 'rgba(255, 215, 0,   0.85)');
+        grad.addColorStop(0.55, 'rgba(255, 140, 0,   0.40)');
+        grad.addColorStop(1.00, 'rgba(255, 100, 0,   0)');
+        ctx.fillStyle = grad;
+        ctx.fillRect(0, 0, size, size);
+
+        // 2) 방사선 12개 (긴/짧음 교차) — 만화 임팩트
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.globalCompositeOperation = 'lighter';
+        const spokes = 12;
+        for (let i = 0; i < spokes; i++) {
+            const angle = (i / spokes) * Math.PI * 2;
+            const isLong = (i % 2 === 0);
+            const inner  = maxR * 0.15;
+            const outer  = maxR * (isLong ? 0.98 : 0.80);
+            const width  = maxR * (isLong ? 0.10 : 0.06);
+            ctx.save();
+            ctx.rotate(angle);
+            const lg = ctx.createLinearGradient(inner, 0, outer, 0);
+            lg.addColorStop(0.0, 'rgba(255, 255, 255, 0.95)');
+            lg.addColorStop(0.5, 'rgba(255, 240, 150, 0.75)');
+            lg.addColorStop(1.0, 'rgba(255, 200, 50,  0)');
+            ctx.fillStyle = lg;
+            ctx.beginPath();
+            ctx.moveTo(inner,  -width / 2);
+            ctx.lineTo(outer,   0);
+            ctx.lineTo(inner,   width / 2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.restore();
+        }
+        ctx.restore();
+
+        // 3) 별 4개 (외곽 — 좌우 대칭 배치)
+        const stars = [
+            { x: cx + maxR * 0.58, y: cy - maxR * 0.48, r: 18 },
+            { x: cx - maxR * 0.58, y: cy - maxR * 0.48, r: 18 },
+            { x: cx + maxR * 0.68, y: cy + maxR * 0.30, r: 14 },
+            { x: cx - maxR * 0.68, y: cy + maxR * 0.30, r: 14 }
+        ];
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle   = 'rgba(255, 255, 240, 1)';
+        ctx.strokeStyle = 'rgba(255, 215, 0, 1)';
+        ctx.lineWidth   = 3;
+        stars.forEach(s => {
+            drawStar(s.x, s.y, 5, s.r, s.r * 0.42);
+            ctx.fill();
+            ctx.stroke();
+        });
+
+        this.textures.addCanvas('__powerupAura', canvas);
     }
 
     // 가장자리 글로우 — 활성 버프 동안 화면 테두리에 등급 색 옅게
