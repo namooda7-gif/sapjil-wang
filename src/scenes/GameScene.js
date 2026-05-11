@@ -107,8 +107,14 @@ const HOLE_PADDING_FACTOR    = 1.275;
 // 2026-05-11 추가: 측정한 alpha-0 padding 위에 painted dirt rim이 추가로 보임
 //   사장님 보고 "굴 위쪽이 지표면보다 아래로" — perceived hole top이 측정 topR보다 아래 위치
 //   이 ratio만큼 hole image를 위로 밀어, 시각적 hole 내부 상단(= rim 안쪽)이 surfaceY와 정렬
-//   사장님 인게임 테스트 후 미세 조정 가능 (rim 두께에 따라 0.02~0.08 범위)
+//   1차 적용(0.04) 후 사장님 "시작점-지표면 얼추 맞아" → 값 적절
 const HOLE_VISUAL_TOP_PERCEPTION = 0.04;
+// 2026-05-11 2차 추가: 사장님 보고 "굴 바닥과 캐릭터 발이 맞지않아. 캐릭터가 굴 아래로"
+//   이전 코드: top만 perception 보정 → hole 전체가 위로 밀려 바닥도 위로 → 캐릭터 발 노출
+//   처방: 바닥 rim도 같이 perception 보정해 h 계산 시 분모(innerR)에서 빼고,
+//         holeImage.y는 top anchor 유지. 결과: 두 anchor 모두 정확 정렬.
+//   값은 top rim과 비슷한 두께 가정 (0.04). 사장님 추가 보고로 비대칭 조정 가능.
+const HOLE_VISUAL_BOTTOM_PERCEPTION = 0.04;
 
 // ━━ 흙더미 시스템 (mound_right.png 이미지) ━━
 //   - 오른쪽용 1장만 로드, 왼쪽은 flipX로 좌우 반전 재활용
@@ -2402,11 +2408,15 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 드링크 마신 직후 캐릭터 뒤 "힘 솟음" 폭발 효과 — 2026-05-11 강화
-    //   메모리 next attempt: "약해" 보고 → 자산 발주 없이 코드 내 절차적 강화
-    //   1) procedural aura PNG (방사선 + 후광 + 별) — 캐릭터 뒤(depth 9)에 폭발 → 회전 + 페이드
-    //   2) 파티클 강화 (frequency 25→15, quantity 3→6, scale 2.0→3.0)
-    //   3) 카메라 짧은 황금 플래시
+    // 드링크 마신 직후 캐릭터 뒤 "힘 솟음" 폭발 효과 — 2026-05-11 강화 2차
+    //   1차(aura PNG + 파티클 강화 + 짧은 flash): 사장님 "전혀 인식 못해"
+    //   원인 가설: 효과 지속 너무 짧음(<2초) + 크기 작아 캐릭터에 묻힘 + 배경(지하 어두움)에서 ADD가 묻힘
+    //   2차 처방:
+    //     1) aura 크기 1.6× → 2.2× (캐릭터 훨씬 크게 감쌈)
+    //     2) 지속 1.85초 → 2.85초 (눈치 챌 시간)
+    //     3) shock ring 2개 (만화 임팩트 ring 확산 — 사장님 "만화 힘솟음 효과" 부합)
+    //     4) 카메라 플래시 150ms → 280ms (더 명확)
+    //     5) 파티클 lifespan 900 → 1400, quantity 6 → 8
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     spawnCharacterBackFire() {
         if (!this.character) return;
@@ -2415,56 +2425,83 @@ export default class GameScene extends Phaser.Scene {
         const cx = this.character.x;
         const cy = this.character.y - this.character.displayHeight * 0.5;  // 캐릭터 가운데
 
-        // ━━ aura PNG: 화면 펑 → 부풀음 → 페이드 ━━
-        // 크기: 캐릭터 displayHeight × 1.6 (캐릭터 살짝 감쌈, 너무 크지 않게)
-        const auraSize = this.character.displayHeight * 1.6;
+        // ━━ shock ring 1: 큰 황금 ring 확산 (만화 임팩트선) ━━
+        const ring1 = this.add.graphics().setDepth(9);
+        ring1.lineStyle(10, 0xffd700, 1);
+        ring1.strokeCircle(0, 0, 60);
+        ring1.setPosition(cx, cy);
+        this.tweens.add({
+            targets: ring1,
+            scale:  { from: 0.3, to: 4.5 },
+            alpha:  { from: 1,   to: 0 },
+            duration: 850, ease: 'Quad.out',
+            onComplete: () => ring1.destroy()
+        });
+        // ━━ shock ring 2: 약간 지연 + 흰색 (이중 임팩트) ━━
+        this.time.delayedCall(150, () => {
+            if (!this.scene || !this.scene.isActive) return;
+            const ring2 = this.add.graphics().setDepth(9);
+            ring2.lineStyle(8, 0xffffff, 1);
+            ring2.strokeCircle(0, 0, 60);
+            ring2.setPosition(cx, cy);
+            this.tweens.add({
+                targets: ring2,
+                scale:  { from: 0.3, to: 5.0 },
+                alpha:  { from: 1,   to: 0 },
+                duration: 850, ease: 'Quad.out',
+                onComplete: () => ring2.destroy()
+            });
+        });
+
+        // ━━ aura PNG: 화면 펑 → 부풀음 → 페이드 (크기/지속 강화) ━━
+        const auraSize = this.character.displayHeight * 2.2;   // 1.6 → 2.2
         const targetScale = auraSize / 512;
         const aura = this.add.image(cx, cy, '__powerupAura')
             .setDepth(9)
             .setAlpha(0)
-            .setScale(targetScale * 0.35)
+            .setScale(targetScale * 0.3)
             .setBlendMode(Phaser.BlendModes.ADD);
 
-        // 회전: 천천히 1바퀴 (만화 임팩트)
+        // 회전: 천천히 (만화 임팩트)
         this.tweens.add({
             targets: aura,
-            angle: 90,
-            duration: 1700,
+            angle: 120,
+            duration: 2700,
             ease: 'Linear'
         });
-        // 스케일/알파 체인: 폭발(200ms) → 펄스(900ms) → 페이드(600ms)
+        // 스케일/알파 체인: 폭발(350ms) → 펄스(900ms) → 페이드(800ms) 총 ~2.85초
         this.tweens.chain({
             targets: aura,
             tweens: [
-                { scale: targetScale,         alpha: 1, duration: 200, ease: 'Back.out' },
-                { scale: targetScale * 1.12,            duration: 450, yoyo: true, ease: 'Sine.inOut' },
-                { scale: targetScale * 1.35,  alpha: 0, duration: 600, ease: 'Quad.in' }
+                { scale: targetScale,         alpha: 1.0, duration: 350, ease: 'Back.out' },
+                { scale: targetScale * 1.15,              duration: 900, yoyo: true, ease: 'Sine.inOut' },
+                { scale: targetScale * 1.45,  alpha: 0,   duration: 800, ease: 'Quad.in' }
             ],
             onComplete: () => { if (aura && aura.scene) aura.destroy(); }
         });
 
-        // ━━ 파티클 강화 (frequency 25→15, quantity 3→6, scale 2.0→3.0) ━━
+        // ━━ 파티클 강화 (lifespan/quantity 추가 증대) ━━
         const emitter = this.add.particles(cx, cy, '__fireParticle', {
             tint: [0xff3030, 0xff8a00, 0xffd700, 0xffffff],
-            lifespan: 900,
-            speedY: { min: -240, max: -90 },         // 위로 솟구침 (강화)
-            speedX: { min: -220, max: 220 },         // 좌우 사방 (강화)
-            scale: { start: 3.0, end: 0 },
+            lifespan: 1400,                          // 900 → 1400 (오래 보임)
+            speedY: { min: -260, max: -100 },
+            speedX: { min: -240, max: 240 },
+            scale: { start: 3.2, end: 0 },
             alpha: { start: 1.0, end: 0 },
-            frequency: 15,
-            quantity: 6,
+            frequency: 12,                            // 15 → 12 (더 자주)
+            quantity: 8,                              // 6 → 8 (더 많이)
             blendMode: 'ADD'
         }).setDepth(9);
 
-        this.time.delayedCall(1500, () => {
+        this.time.delayedCall(2000, () => {           // 1500 → 2000 (오래 분출)
             if (emitter && emitter.stop) emitter.stop();
-            this.time.delayedCall(900, () => {
+            this.time.delayedCall(1400, () => {
                 if (emitter && emitter.scene) emitter.destroy();
             });
         });
 
-        // ━━ 짧은 황금 카메라 플래시 (0.15초) ━━
-        this.cameras.main.flash(150, 255, 215, 0, false);
+        // ━━ 황금 카메라 플래시 (280ms — 더 명확) ━━
+        this.cameras.main.flash(280, 255, 215, 0, false);
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -3117,27 +3154,29 @@ export default class GameScene extends Phaser.Scene {
         // 구덩이 바닥 = 캐릭터 발 + HOLE_Y_OFFSET (살짝 아래)
         const holeBottomY = this.character.y + HOLE_Y_OFFSET;
 
-        // ━━ surfaceY 기준 직접 anchored (2026-05-11) ━━
-        //   배경: 4회 시도 모두 부분 효과만 (PADDING_FACTOR 1.0/1.10/1.25/1.275 다 시도)
-        //   메모리 next attempt 2번 + 3번 적용 — 같은 처방 반복 금지 규칙 준수.
-        //   - 두 padding ratio 동적 측정 (PADDING_FACTOR 고정 상수 의존 X)
-        //   - 굴 시각 상단을 surfaceY에 직접 anchor (예전: bottom anchor)
-        //   - HOLE_VISUAL_TOP_PERCEPTION: 측정 alpha-0 top 위 painted rim 두께 보정
+        // ━━ surfaceY 기준 직접 anchored (2026-05-11, 2차 수정) ━━
+        //   1차(top만 perception): 사장님 보고 "상단 OK, 바닥-발 어긋남"
+        //   원인: top perception이 hole 전체를 위로 밀어 바닥도 위로 → 캐릭터 발 노출
+        //   2차 처방: bottom rim도 perception에 포함 → 두 anchor 모두 정확 정렬
         //
         //   수식:
-        //     visibleR = 1 - topR - botR  (시각 흙 영역 비율)
-        //     h × visibleR = holeBottomY - surfaceY  → h = (holeBottomY - surfaceY) / visibleR
-        //     visual hole 내부 상단 = holeImage.y - h × (1 - topR - perception)
-        //     이를 surfaceY와 정렬: holeImage.y = surfaceY + h × (1 - topR - perception)
+        //     innerR = 1 - topR - botR - topPerception - botPerception  (rim 안쪽 진짜 hole 비율)
+        //     h × innerR = holeBottomY - surfaceY  → h = (holeBottomY - surfaceY) / innerR
+        //     hole 내부 상단 = holeImage.y - h × (1 - topR - topPerception) = surfaceY (anchored)
+        //     hole 내부 바닥 = holeImage.y - h × (botR + botPerception)
+        //                   = surfaceY + h × (1 - topR - topPerception - botR - botPerception)
+        //                   = surfaceY + h × innerR = holeBottomY ✓ (anchored)
         const topR = (this.holeTopPaddingRatio    != null) ? this.holeTopPaddingRatio    : 0.107;
         const botR = (this.holeBottomPaddingRatio != null) ? this.holeBottomPaddingRatio : 0.109;
-        const visibleR = Math.max(0.01, 1 - topR - botR);
-        const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) / visibleR);
+        const topP = HOLE_VISUAL_TOP_PERCEPTION;
+        const botP = HOLE_VISUAL_BOTTOM_PERCEPTION;
+        const innerR = Math.max(0.01, 1 - topR - botR - topP - botP);
+        const h = Math.max(HOLE_MIN_HEIGHT, (holeBottomY - surfaceY) / innerR);
 
         this.holeImage.setDisplaySize(w, h);
         // origin (0.5, 1.0) → holeImage.y = 이미지 바닥(투명 padding 포함) 픽셀 좌표
-        // perception 만큼 위로 밀어 painted rim 안쪽이 surfaceY와 정렬
-        this.holeImage.y = surfaceY + h * (1 - topR - HOLE_VISUAL_TOP_PERCEPTION);
+        // hole 내부 상단을 surfaceY에 anchor → 바닥은 innerR 수식으로 holeBottomY 자동 정렬
+        this.holeImage.y = surfaceY + h * (1 - topR - topP);
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

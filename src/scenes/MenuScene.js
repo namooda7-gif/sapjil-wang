@@ -461,13 +461,14 @@ export default class MenuScene extends Phaser.Scene {
         const btnYs = [560, 660, 760, 860];
         this.createStartButton(btnX, btnYs[0], btnW, btnH);
         this.createWaggleHand(btnX + btnW / 2 + 30, btnYs[0]);
-        this.createIconButton(btnX, btnYs[1], btnW, btnH, '👷', '캐릭터', () => {
+        // 2026-05-11: 박물관 등 메뉴 버튼도 bindMobileClick 첫 탭 실패 가능 → DOM 우회 적용
+        this.createIconButton(btnX, btnYs[1], btnW, btnH, 'character', '👷', '캐릭터', () => {
             this.scene.start('CharacterScene');
         });
-        this.createIconButton(btnX, btnYs[2], btnW, btnH, '🛒', '상점', () => {
+        this.createIconButton(btnX, btnYs[2], btnW, btnH, 'shop', '🛒', '상점', () => {
             this.scene.start('ShopScene');
         });
-        this.createIconButton(btnX, btnYs[3], btnW, btnH, '🏛️', '삽질박물관', () => {
+        this.createIconButton(btnX, btnYs[3], btnW, btnH, 'museum', '🏛️', '삽질박물관', () => {
             this.scene.start('MuseumScene');
         });
     }
@@ -567,10 +568,9 @@ export default class MenuScene extends Phaser.Scene {
 
         // ━━ DOM HTML <button> 우회 ━━
         // Phaser input 시스템 완전 우회 — 브라우저 네이티브 input이 가로챔
-        // 게임 좌표(x, y, hitW, hitH) → CSS 좌표로 변환해 캔버스 위 투명 버튼 배치
-        const hitW = w + HIT_PAD * 2;
-        const hitH = h + SHADOW_OFFSET + HIT_PAD * 2;
-        this.attachDOMStartOverlay(x, y, hitW, hitH, startGame);
+        // 2026-05-11 사장님 보고: 캐릭터 머리 부분에서 시작 버튼이 작동
+        //   → HIT_PAD 60 확장이 캐릭터 영역과 겹침. DOM은 시각 영역만으로 축소 (Phaser는 60 유지 폴백)
+        this.attachDOMTouchOverlay('start', x, y, w, h + SHADOW_OFFSET, '삽질하러 가기', startGame);
 
         return container;
     }
@@ -578,20 +578,25 @@ export default class MenuScene extends Phaser.Scene {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // DOM HTML <button> 우회 — Phaser input 외 직접 브라우저 native input
     //   배경: 메모리 project_unresolved_attempts_2026_05_10.md — Phaser input 6번 시도 모두 실패
-    //   원리: 캔버스 위에 z-index 9999 투명 <button>을 시작 버튼 위치에 겹침
+    //   원리: 캔버스 위에 z-index 9999 투명 <button>을 버튼 위치에 겹침
     //         → 터치는 브라우저 → button → click 핸들러로 직진 (Phaser input 우회)
     //   좌표: scale.canvasBounds + scale.displayScale 로 게임 좌표 → CSS 픽셀 변환
     //   리사이즈: 주소창 토글/회전 시 canvasBounds 변하므로 reposition 재호출
     //   클린업: scene shutdown/destroy 시 DOM 제거 (다음 진입 시 중복 방지)
+    //
+    //   2026-05-11 일반화: buttonKey로 id 분리 → 시작/캐릭터/상점/박물관 모두 적용
+    //   사장님 보고 "박물관 작동 안해" — bindMobileClick의 dragThreshold 30px 모바일 첫 탭 실패
+    //   원리는 시작 버튼과 동일하므로 메뉴 버튼 모두 DOM 우회 적용
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    attachDOMStartOverlay(gameX, gameY, gameW, gameH, onStartCallback) {
+    attachDOMTouchOverlay(buttonKey, gameX, gameY, gameW, gameH, ariaLabel, onPress) {
+        const elementId = `__dom-overlay-${buttonKey}`;
         // 이전 인스턴스(scene 재시작 등) 정리
-        const existing = document.getElementById('__dom-start-overlay');
+        const existing = document.getElementById(elementId);
         if (existing && existing.parentNode) existing.remove();
 
         const btn = document.createElement('button');
-        btn.id = '__dom-start-overlay';
-        btn.setAttribute('aria-label', '삽질하러 가기');
+        btn.id = elementId;
+        btn.setAttribute('aria-label', ariaLabel || buttonKey);
         btn.style.cssText = [
             'position: fixed',
             'z-index: 9999',
@@ -628,7 +633,7 @@ export default class MenuScene extends Phaser.Scene {
                 e.preventDefault();
                 e.stopPropagation();
             }
-            if (typeof onStartCallback === 'function') onStartCallback();
+            if (typeof onPress === 'function') onPress();
         };
         // pointerdown 즉시 처리 (Phaser 경로와 동일 전략)
         btn.addEventListener('pointerdown', onPointer, { passive: false });
@@ -715,8 +720,10 @@ export default class MenuScene extends Phaser.Scene {
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 일반 라운드 버튼 (캐릭터/상점/박물관용)
+    //   2026-05-11: DOM 우회 추가 (사장님 보고 "박물관 작동 안해")
+    //   buttonKey 인자로 DOM overlay 식별 (start 와 분리)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    createIconButton(x, y, w, h, icon, label, onClick) {
+    createIconButton(x, y, w, h, buttonKey, icon, label, onClick) {
         const container = this.add.container(x, y).setDepth(20);
         const radius = 16;
         const colorTop    = 0xFFD700;
@@ -748,12 +755,17 @@ export default class MenuScene extends Phaser.Scene {
             Phaser.Geom.Rectangle.Contains
         );
 
-        // drag-tolerant click — 모바일 첫 탭 안정성
+        // drag-tolerant click — 모바일 첫 탭 안정성 (Phaser 경로, 폴백)
         this.bindMobileClick(container, () => {
             if (onClick) onClick();
         }, {
             onPress:   () => container.setScale(0.96),
             onRelease: () => container.setScale(1)
+        });
+
+        // DOM HTML <button> 우회 — Phaser bindMobileClick 첫 탭 실패 대응
+        this.attachDOMTouchOverlay(buttonKey, x, y, w, h + SHADOW_OFFSET, label, () => {
+            if (onClick) onClick();
         });
 
         return container;
