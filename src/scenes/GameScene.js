@@ -177,7 +177,12 @@ const SHOVEL_HAPTIC_INTENSITY = ['light', 'medium', 'heavy', 'heavy'];
 //   - 등장 중에는 일반 dig 차단, 장애물 전용 탭으로 카운트
 //   - 부수면 보물 확률 +20% (10초간 부스트)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-const OBSTACLE_TAP_INTERVAL  = 20;        // 매 N탭마다 무조건 등장 (확률 X)
+// 2026-06-01 STEP1(인터럽트 빈도 조정): 20 → 40. 장애물 개별 난이도(요구탭)는 불변, 등장 빈도만 절반.
+const OBSTACLE_TAP_INTERVAL  = 40;        // 매 N탭마다 무조건 등장 (확률 X)
+// ━━ 전역 인터럽트 쿨다운 (2026-06-01 STEP1) ━━
+//   장애물/드링크/날씨/POWER DIG 중 하나가 발동하면 그 후 이 탭 수 동안 다른 인터럽트 발동 금지.
+//   → 인터럽트가 한꺼번에 몰리지 않게 해 "삽질 리듬" 회복. (보물 팝업·혼잣말은 쿨다운 제외)
+const INTERRUPT_GLOBAL_COOLDOWN_TAPS = 12;
 const OBSTACLE_BOOST_MS      = 10000;     // 보물 확률 부스트 지속 (10초)
 const OBSTACLE_BOOST_AMOUNT  = 0.20;      // +20% 추가 확률
 // type별로 sound 키를 부여해 SoundManager.playObstacleHitSound(type)에서 거친 사운드 분기
@@ -257,7 +262,7 @@ const FORESHADOW_LINES = [
 //     → 모든 레이어에서 드링크 시스템 인지 보장 (이전엔 평생 1회라 거의 안 보임)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const DRINK_SPAWN_INTERVAL      = 40;
-const DRINK_SPAWN_CHANCE        = 0.12;
+const DRINK_SPAWN_CHANCE        = 0.06;   // 2026-06-01 STEP1: 0.12 → 0.06 (반복 발동 확률 절반, 첫 보장은 유지)
 const DRINK_FIRST_GUARANTEED_AT = 20;
 const DRINK_TYPES = {
     sapcas:    { name: '삽카스',   rarity: 'common',    emoji: '🥤', color: 0x4a9d3a, hex: '#4a9d3a', effect: 'coin',    durationMs: 30000, line: '어우 시원~ 삽카스!' },
@@ -281,7 +286,7 @@ const DRINK_BONUS = {
 //   - 위치: 캐릭터 아래(엄지 도달 영역) → 한 손 그립에서 탭 용이
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const POWERDIG_SPAWN_INTERVAL      = 25;        // 매 N탭마다 굴림
-const POWERDIG_SPAWN_CHANCE        = 0.25;      // 25% 등장 확률
+const POWERDIG_SPAWN_CHANCE        = 0.125;     // 2026-06-01 STEP1: 0.25 → 0.125 (반복 확률 절반, 첫 보장은 유지)
 const POWERDIG_FIRST_GUARANTEED_AT = 15;        // 매 레이어 진입 후 이 탭에 무조건 1회
 const POWERDIG_LIFETIME_MS         = 5000;      // 5초 머무르고 자동 페이드아웃
 const POWERDIG_HIT_RADIUS          = 225;       // 정조준 히트 반경 (px) — 박스 + 살짝 패딩 (시각 3배 확대 대응)
@@ -301,7 +306,7 @@ const POWERDIG_REACTION_LINES = [
 //   WEATHER_FIRST_GUARANTEED_AT: 매 실외 레이어 진입 후 이 탭에 무조건 1회
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const WEATHER_INTERVAL            = 40;
-const WEATHER_CHANCE              = 0.08;
+const WEATHER_CHANCE              = 0.04;   // 2026-06-01 STEP1: 0.08 → 0.04 (반복 확률 절반, 첫 보장은 유지)
 const WEATHER_DURATION            = 12000;
 const WEATHER_FIRST_GUARANTEED_AT = 30;
 // 실내 레이어 (날씨 발동 X)
@@ -458,6 +463,12 @@ export default class GameScene extends Phaser.Scene {
         this.tapsSinceLastObstacleCheck = 0;  // 매 OBSTACLE_TAP_INTERVAL 탭마다 확률 굴림
         this.currentObstacle    = null;       // { type, tapsLeft, container, emojiText, hpBar, hpBarBg }
         this.treasureBoostUntil = 0;          // 장애물 깬 후 추가 보물 확률 부스트 만료 ms
+
+        // ━━ 전역 인터럽트 쿨다운 (2026-06-01 STEP1) ━━
+        //   totalTaps: 실제 dig 탭 누적(장애물 깨는 탭은 제외 — 그 탭은 dig 초반 early-return).
+        //   interruptCooldownUntilTap: 이 탭 수에 도달하기 전까지 새 인터럽트(장애물/드링크/날씨/POWER DIG) 금지.
+        this.totalTaps = 0;
+        this.interruptCooldownUntilTap = 0;
 
         // ━━ 캐릭터 혼잣말 ━━
         this.tapsSinceLastMonologue = 0;
@@ -1027,6 +1038,16 @@ export default class GameScene extends Phaser.Scene {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 핵심 삽질 로직
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━ 전역 인터럽트 쿨다운 헬퍼 (2026-06-01 STEP1) ━━
+    // 쿨다운 중이면 true → 이 동안 장애물/드링크/날씨/POWER DIG 발동 보류
+    _interruptOnCooldown() {
+        return this.totalTaps < this.interruptCooldownUntilTap;
+    }
+    // 인터럽트가 실제로 발동한 시점에 호출 → 그 후 INTERRUPT_GLOBAL_COOLDOWN_TAPS 탭 동안 다른 인터럽트 금지
+    _beginInterruptCooldown() {
+        this.interruptCooldownUntilTap = this.totalTaps + INTERRUPT_GLOBAL_COOLDOWN_TAPS;
+    }
+
     dig(x, y) {
         // 보물 팝업 / 클리어 연출 중엔 삽질 차단
         if (this.treasurePopupActive) return;
@@ -1106,6 +1127,9 @@ export default class GameScene extends Phaser.Scene {
         this.digFraction -= inc;
         const prevDigCount = this.digCount;
         this.digCount += inc;
+
+        // 실제 dig 탭 누적 (전역 인터럽트 쿨다운 기준) — 장애물 깨는 탭은 위에서 early-return되어 여기 안 옴
+        this.totalTaps += 1;
 
         // 장애물 체크/혼잣말은 "탭 횟수" 기반 (배율 X) → 그대로 +1
         this.tapsSinceLastObstacleCheck += 1;
@@ -1318,37 +1342,58 @@ export default class GameScene extends Phaser.Scene {
 
         // 첫 드링크 보장 — 게임 처음 시작한 신규 유저가 layer_001(50탭)에서도 1번은 보게
         // (이전엔 INTERVAL 100탭이라 layer_001에서 spawn 굴림 자체가 없었음)
+        // STEP1: 쿨다운 중이면 이번 탭 보류(플래그/카운터 안 건드림) → 쿨다운 풀리면 다음 탭에 발동 (보장 자체는 유지)
         if (!this.firstDrinkEverSpawned && this.digCount >= DRINK_FIRST_GUARANTEED_AT) {
-            this.firstDrinkEverSpawned = true;
+            if (!this._interruptOnCooldown()) {
+                this.firstDrinkEverSpawned = true;
+                this.tapsSinceLastDrinkCheck = 0;
+                this.spawnDrink();
+                this._beginInterruptCooldown();
+            }
+        } else if (this.tapsSinceLastDrinkCheck >= DRINK_SPAWN_INTERVAL && !this._interruptOnCooldown()) {
             this.tapsSinceLastDrinkCheck = 0;
-            this.spawnDrink();
-        } else if (this.tapsSinceLastDrinkCheck >= DRINK_SPAWN_INTERVAL) {
-            this.tapsSinceLastDrinkCheck = 0;
-            if (Math.random() < DRINK_SPAWN_CHANCE) this.spawnDrink();
+            if (Math.random() < DRINK_SPAWN_CHANCE) {
+                this.spawnDrink();
+                this._beginInterruptCooldown();
+            }
         }
 
         // 첫 기상 보장 — 실외 레이어에서만 (찜질방 등 실내는 스킵)
+        // STEP1: 드링크와 동일하게 전역 쿨다운 적용 (보장은 보류 후 유지)
         const layerOutdoor = this.layerData && !WEATHER_INDOOR_LAYERS.has(this.layerData.id);
         if (!this.firstWeatherEverSpawned && layerOutdoor && this.digCount >= WEATHER_FIRST_GUARANTEED_AT) {
-            this.firstWeatherEverSpawned = true;
+            if (!this._interruptOnCooldown()) {
+                this.firstWeatherEverSpawned = true;
+                this.tapsSinceLastWeatherCheck = 0;
+                this.maybeStartWeather();
+                this._beginInterruptCooldown();
+            }
+        } else if (this.tapsSinceLastWeatherCheck >= WEATHER_INTERVAL && !this._interruptOnCooldown()) {
             this.tapsSinceLastWeatherCheck = 0;
-            this.maybeStartWeather();
-        } else if (this.tapsSinceLastWeatherCheck >= WEATHER_INTERVAL) {
-            this.tapsSinceLastWeatherCheck = 0;
-            if (Math.random() < WEATHER_CHANCE) this.maybeStartWeather();
+            if (Math.random() < WEATHER_CHANCE) {
+                this.maybeStartWeather();
+                this._beginInterruptCooldown();
+            }
         }
 
         // ━━ POWER DIG 스윗스팟 등장 굴림 ━━
         // 첫 레이어에서 보장 1회 → 시스템 인지. 그 후 25탭마다 25% 확률
         // 이미 박스가 떠 있으면 spawnPowerDig이 내부에서 자동 차단
+        // STEP1: 전역 쿨다운 적용 (보장은 보류 후 유지)
         this.tapsSinceLastPowerDigCheck += 1;
         if (!this.firstPowerDigEverSpawned && this.digCount >= POWERDIG_FIRST_GUARANTEED_AT) {
-            this.firstPowerDigEverSpawned = true;
+            if (!this._interruptOnCooldown()) {
+                this.firstPowerDigEverSpawned = true;
+                this.tapsSinceLastPowerDigCheck = 0;
+                this.spawnPowerDig();
+                this._beginInterruptCooldown();
+            }
+        } else if (this.tapsSinceLastPowerDigCheck >= POWERDIG_SPAWN_INTERVAL && !this._interruptOnCooldown()) {
             this.tapsSinceLastPowerDigCheck = 0;
-            this.spawnPowerDig();
-        } else if (this.tapsSinceLastPowerDigCheck >= POWERDIG_SPAWN_INTERVAL) {
-            this.tapsSinceLastPowerDigCheck = 0;
-            if (Math.random() < POWERDIG_SPAWN_CHANCE) this.spawnPowerDig();
+            if (Math.random() < POWERDIG_SPAWN_CHANCE) {
+                this.spawnPowerDig();
+                this._beginInterruptCooldown();
+            }
         }
 
         // ━━ SOUL 게이지 감소 (탭당 -0.5%) ━━
@@ -1363,11 +1408,13 @@ export default class GameScene extends Phaser.Scene {
             this.showCharacterMonologue(line);
         }
 
-        // ━━ 20탭마다 장애물 무조건 등장 (확률 X) ━━
-        // 단, 이미 활성 장애물이 있으면 spawnObstacle 내부에서 자동 차단됨
-        if (this.tapsSinceLastObstacleCheck >= OBSTACLE_TAP_INTERVAL) {
+        // ━━ 40탭마다 장애물 무조건 등장 (확률 X) ━━
+        // STEP1: 주기 20→40 + 전역 쿨다운. 쿨다운 중이면 카운터 유지 → 쿨다운 풀린 다음 탭에 등장
+        // 단, 이미 활성 장애물이 있으면 dig 초반 early-return이라 이 블록 자체가 실행 안 됨
+        if (this.tapsSinceLastObstacleCheck >= OBSTACLE_TAP_INTERVAL && !this._interruptOnCooldown()) {
             this.tapsSinceLastObstacleCheck = 0;
             this.spawnObstacle();
+            this._beginInterruptCooldown();
         }
 
         // ━━ 보물 출현 체크 ━━
