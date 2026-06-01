@@ -179,6 +179,31 @@ export function isHardSoil(soilType) {
 }
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 녹음 삽질 효과음 매핑 (BootScene에서 로드한 키) — 2026-06-01
+//   soilType별로 후보 샘플 목록. playDigSound가 이 중 2~3개를 살짝 다른 피치/볼륨으로
+//   겹쳐 재생해 "찰지고 풍성한" 타격감 + 매 탭 미묘한 변주(단조로움 방지).
+//   파일 누락(키 부재) 시 자동으로 기존 합성 사운드로 폴백.
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const DIG_SAMPLE_MAP = {
+    dirt:     ['sfx_soil_1', 'sfx_soil_2', 'sfx_soil_3'],
+    sand:     ['sfx_soil_1', 'sfx_soil_2', 'sfx_soil_3'],        // 모래도 부드러운 흙 계열로
+    tile:     ['sfx_concrete_1', 'sfx_concrete_2', 'sfx_rock_1'],// 타일(찜질방)은 단단 → 콘크리트+돌 믹스
+    concrete: ['sfx_concrete_1', 'sfx_concrete_2', 'sfx_rock_2'],
+    rock:     ['sfx_rock_1', 'sfx_rock_2', 'sfx_rock_3'],
+    lava:     []                                                 // 전용 녹음 없음 → 합성 폴백
+};
+
+// 장애물 격파 히트음 — 녹음 있는 타입만 (나머지는 합성 폴백)
+const OBSTACLE_SAMPLE_MAP = {
+    rock:  ['sfx_ob_rock_1', 'sfx_ob_rock_2'],
+    bone:  ['sfx_ob_bone_1', 'sfx_ob_bone_2'],
+    skull: ['sfx_ob_bone_1', 'sfx_ob_bone_2'],                   // 두개골 ≈ 뼈
+    root:  ['sfx_ob_root_1', 'sfx_ob_root_2']
+};
+
+const DIG_SFX_VOLUME = 0.9;   // 녹음 삽질음 기본 볼륨 (레이어링 시 클리핑 방지)
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // BGM 시스템 (모듈 레벨 싱글톤 - SFX와 별도 채널)
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 const BGM_STORAGE_KEY    = 'sapjilwang_bgm_muted_v1';
@@ -262,7 +287,60 @@ export default class SoundManager {
     //   - 돌/타일 (hard): 위 사운드 + metalRing(고음 사인 2400~3200Hz)으로 금속성 강조
     //     → 햅틱/카메라 강화는 GameScene에서 isHardSoil() 분기로 처리
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // ━━ 녹음 샘플 2~3개 믹스 재생 (2026-06-01) ━━
+    //   keys 중 2~3개를 골라 살짝 다른 detune(피치)/볼륨/딜레이로 겹쳐 재생 → 두툼한 타격감.
+    //   재생 성공 시 true, 로드된 샘플이 하나도 없으면 false(=합성 폴백하라는 신호).
+    _playSampleMix(keys, opts = {}) {
+        if (sfxState.muted) return false;
+        if (!keys || keys.length === 0) return false;
+        if (!this.scene || !this.scene.sound || !this.scene.cache || !this.scene.cache.audio) return false;
+
+        // 실제 로드된 키만 추림 (파일 누락 대비)
+        const avail = keys.filter(k => this.scene.cache.audio.exists(k));
+        if (avail.length === 0) return false;
+
+        const baseVolume  = opts.baseVolume  != null ? opts.baseVolume  : 1.0;
+        const detuneRange = opts.detuneRange != null ? opts.detuneRange : 200;   // ± cents
+        const maxLayers   = opts.maxLayers   != null ? opts.maxLayers   : 3;
+
+        // 후보 셔플 (Fisher-Yates)
+        const pool = avail.slice();
+        for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [pool[i], pool[j]] = [pool[j], pool[i]];
+        }
+        // 2~3개 (가능 개수 내)
+        let count = Math.min(pool.length, maxLayers, 2 + (Math.random() < 0.5 ? 1 : 0));
+        if (count < 1) count = 1;
+        const picks = pool.slice(0, count);
+
+        picks.forEach((key, i) => {
+            const detune  = Math.round((Math.random() * 2 - 1) * detuneRange);
+            // 첫 레이어는 풀 볼륨, 나머지는 보조(겹침이라 줄여서 클리핑/과함 방지)
+            const layerVol = (i === 0) ? 1.0 : (0.45 + Math.random() * 0.25);
+            const vol = Math.max(0, Math.min(1, baseVolume * layerVol * sfxState.masterVolume));
+            const delay = (i === 0) ? 0 : Math.floor(Math.random() * 28);   // 살짝 어긋나게 → 자연스러운 두께
+            const playOne = () => {
+                if (sfxState.muted) return;
+                try { this.scene.sound.play(key, { detune, volume: vol }); } catch (e) {}
+            };
+            if (delay === 0 || !this.scene.time) playOne();
+            else this.scene.time.delayedCall(delay, playOne);
+        });
+        return true;
+    }
+
     playDigSound(soilType) {
+        if (sfxState.muted) return;
+        // 1) 녹음 샘플 우선 (soilType별 2~3개 믹스)
+        const keys = DIG_SAMPLE_MAP[soilType] || DIG_SAMPLE_MAP.dirt;
+        if (this._playSampleMix(keys, { baseVolume: DIG_SFX_VOLUME, detuneRange: 220, maxLayers: 3 })) return;
+        // 2) 폴백: 기존 합성 사운드
+        this._playDigSynth(soilType);
+    }
+
+    // (폴백) 합성 삽질 사운드 — 녹음 샘플 미로드 시에만 사용
+    _playDigSynth(soilType) {
         if (sfxState.muted) return;
         const cfg = SOIL_DIG_CONFIG[soilType] || SOIL_DIG_CONFIG.dirt;
         // 메인 톤 (볼륨 +43%: 0.7 → 1.0, 두께 강화)
@@ -678,6 +756,10 @@ export default class SoundManager {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     playObstacleHitSound(type = 'rock') {
         if (sfxState.muted) return;
+        // 녹음 있는 타입(rock/bone/skull/root)은 샘플 믹스 우선 (2종 겹침)
+        const sampleKeys = OBSTACLE_SAMPLE_MAP[type];
+        if (sampleKeys && this._playSampleMix(sampleKeys, { baseVolume: 1.0, detuneRange: 160, maxLayers: 2 })) return;
+        // 폴백: 타입별 합성 사운드
         switch (type) {
             case 'rock':    this._hitRock();    break;
             case 'bone':    this._hitBone();    break;

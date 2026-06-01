@@ -87,6 +87,28 @@ export default class BootScene extends Phaser.Scene {
         this.load.audio('bgm_layer005', 'assets/sounds/bgm/bgm_layer005.mp3');
         this.load.audio('bgm_layer006', 'assets/sounds/bgm/bgm_layer006.mp3');
 
+        // ━━━ 삽질 효과음(SFX) — 녹음 파일 (soilType별 2~3개 믹스용) ━━━
+        // 파일 누락 시 SoundManager가 자동으로 기존 합성 사운드로 폴백
+        const SFX = 'assets/sounds/sfx';
+        // 흙(soft): dirt/sand 공용
+        this.load.audio('sfx_soil_1', `${SFX}/dig_soil_1.mp3`);
+        this.load.audio('sfx_soil_2', `${SFX}/dig_soil_2.mp3`);
+        this.load.audio('sfx_soil_3', `${SFX}/dig_soil_3.mp3`);
+        // 돌(hard)
+        this.load.audio('sfx_rock_1', `${SFX}/dig_rock_1.mp3`);
+        this.load.audio('sfx_rock_2', `${SFX}/dig_rock_2.mp3`);
+        this.load.audio('sfx_rock_3', `${SFX}/dig_rock_3.mp3`);
+        // 콘크리트/타일(hard)
+        this.load.audio('sfx_concrete_1', `${SFX}/dig_concrete_1.mp3`);
+        this.load.audio('sfx_concrete_2', `${SFX}/dig_concrete_2.mp3`);
+        // 장애물 격파 히트음 (rock/bone/root 각 2종)
+        this.load.audio('sfx_ob_rock_1', `${SFX}/dig_ocstacle_rock1.mp3`);
+        this.load.audio('sfx_ob_rock_2', `${SFX}/dig_obstacle__rock2.mp3`);
+        this.load.audio('sfx_ob_bone_1', `${SFX}/dig_ocstacle_bone1.mp3`);
+        this.load.audio('sfx_ob_bone_2', `${SFX}/dig_obstacle__bone2.mp3`);
+        this.load.audio('sfx_ob_root_1', `${SFX}/obstacle_root1.mp3`);
+        this.load.audio('sfx_ob_root_2', `${SFX}/dig_obstacle__root2.mp3`);
+
         // 누락된 에셋이 있어도 무시하고 넘어감 (조용히 fail)
         // - audio: BGM 누락 → 무음
         // - image: 보물/캐릭터 누락 → 호출 측 textures.exists 체크로 emoji fallback
