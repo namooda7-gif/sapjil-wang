@@ -531,6 +531,12 @@ export default class GameScene extends Phaser.Scene {
         this.autoDigPanelOpen = false;        // 패널 열림 플래그 (열려 있으면 dig 차단)
         // STEP6: 일일 미션 매니저 (게임 중 진행 보고 → 완료 시 자동 보상)
         this.missionManager = new MissionManager(this.currencyManager);
+        // 핫패스 최적화 — 미션 보고 스로틀/캐시 (저사양 모바일 입력 지연 방지)
+        this._autoCoinBatch = 0;          // 자동수입 코인 누적(1초마다 한 번 보고)
+        this._autoCoinBatchMs = 0;        // 누적 경과 ms
+        this._lastReportedDepthM = 0;     // 마지막 보고한 정수 깊이(m)
+        this._completedDexCount = this.currencyManager.getCompletedDexLayerCount
+            ? this.currencyManager.getCompletedDexLayerCount() : 0;  // 도감 완성 수 캐시(매탭 재계산 회피)
 
         // 현재 사용 중인 캐릭터 ID — CurrencyManager에서 매번 갱신 (씬 재진입 시도 반영)
         // 선택 캐릭터 idle 자산 미로드 시 char_001 폴백 → 게임 깨짐 방지
@@ -1339,8 +1345,12 @@ export default class GameScene extends Phaser.Scene {
             );
         }
 
-        // STEP6: 일일 미션 — 지하 도달 깊이(m) 보고 (mode 'max')
-        this.reportMission('depth', depthM);
+        // STEP6: 일일 미션 — 지하 깊이(m)는 정수가 증가할 때만 보고 (매탭 save 방지 + 정수 진행 표시)
+        const depthFloor = Math.floor(depthM);
+        if (depthFloor > this._lastReportedDepthM) {
+            this._lastReportedDepthM = depthFloor;
+            this.reportMission('depth', depthFloor);
+        }
 
         // ━━ 깊이 마일스톤 보너스 (STEP2): 매 DEEP_MILESTONE_M(=100m)마다 다이아 ━━
         // totalDepthCm는 전 레이어 누적 → 한 탭에 100m를 넘는 일은 없으나, 안전하게 while로 처리
@@ -1543,10 +1553,9 @@ export default class GameScene extends Phaser.Scene {
         if (this.time.now < this.treasureBoostUntil) {
             treasureRate += OBSTACLE_BOOST_AMOUNT;
         }
-        // STEP6: 도감 완성 보너스 — 완성한 레이어 1개당 보물 확률 +5%(상대) (수집 동기 보상)
-        const dexDone = this.currencyManager.getCompletedDexLayerCount
-            ? this.currencyManager.getCompletedDexLayerCount() : 0;
-        if (dexDone > 0) treasureRate *= (1 + 0.05 * dexDone);
+        // STEP6: 도감 완성 보너스 — 완성한 레이어 1개당 보물 확률 +5%(상대)
+        //   매탭 재계산(114개 스캔) 회피 위해 캐시값(_completedDexCount) 사용. 완성 시점에만 갱신.
+        if (this._completedDexCount > 0) treasureRate *= (1 + 0.05 * this._completedDexCount);
         if (Math.random() < treasureRate) {
             // 직전 0.3초 황금빛 + 두근두근 → 그 후 spawnTreasure
             this.playTreasureForeshadow(() => this.spawnTreasure());
@@ -3764,8 +3773,18 @@ export default class GameScene extends Phaser.Scene {
             const earned = this.autoDigManager.accrue(delta);
             if (earned > 0) {
                 if (this.coinText) this.coinText.setText(`🪙 ${this.currencyManager.coin}`);
-                // STEP6: 일일 미션 — 자동수입 코인 누적 보고
-                this.reportMission('auto_coin', earned);
+                // STEP6: 일일 미션 — 자동수입 코인은 1초에 한 번만 모아서 보고
+                //   (매 프레임 report → MissionManager.save() 가 60회/초 호출되던 것 방지)
+                this._autoCoinBatch += earned;
+            }
+        }
+        // 자동수입 미션 보고 스로틀 (1초마다)
+        if (this._autoCoinBatch > 0) {
+            this._autoCoinBatchMs += delta;
+            if (this._autoCoinBatchMs >= 1000) {
+                this.reportMission('auto_coin', this._autoCoinBatch);
+                this._autoCoinBatch = 0;
+                this._autoCoinBatchMs = 0;
             }
         }
 
@@ -4568,6 +4587,8 @@ export default class GameScene extends Phaser.Scene {
         if (this._dexAnnounced.has(layer.id)) return;
         if (this.currencyManager.isLayerDexComplete(layer)) {
             this._dexAnnounced.add(layer.id);
+            // 도감 완성 수 캐시 갱신 (dig 핫패스에서 재계산 안 하도록)
+            this._completedDexCount = this.currencyManager.getCompletedDexLayerCount();
             const { width, height } = this.cameras.main;
             this.showFloatingText(width / 2, height * 0.4, `🗂️ ${layer.name} 도감 완성!\n이 레이어 보물 확률 ↑`, '#ffd700');
             this.cameras.main.flash(260, 255, 215, 0);
