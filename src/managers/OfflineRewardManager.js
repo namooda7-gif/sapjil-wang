@@ -1,10 +1,11 @@
 // 오프라인 보상 매니저 - 게임 종료 시각 저장 + 재접속 시 보상 계산
-// 1초당 0.5코인, 최대 8시간치 (= 14,400코인)
+// 2026-06-01 STEP5: 고정 0.5코인/초 → "인부들이 벌어놓은 자동수입" 으로 전환
+//   오프라인 수입 = AutoDigManager 총 초당코인 × 떠나있던 초 (최대 8시간)
+//   → 인부 없으면 수입 0 / 인부 레벨업이 곧 오프라인 수입 증가 = 돌아올 이유
 // CurrencyManager는 건드리지 않고 별도 storage key로 저장
 
 const STORAGE_KEY = 'sapjilwang_offline_v1';
 
-const COIN_PER_SECOND       = 0.5;
 const MAX_HOURS             = 8;
 const MAX_SECONDS           = MAX_HOURS * 3600;        // 28800초
 const MIN_THRESHOLD_SECONDS = 30;                      // 30초 미만은 팝업 안 띄움 (메뉴 왔다갔다 노이즈 방지)
@@ -12,11 +13,18 @@ const MIN_THRESHOLD_SECONDS = 30;                      // 30초 미만은 팝업
 export default class OfflineRewardManager {
     /**
      * @param {object} currencyManager - 보상 적용 대상 (addCoin 호출됨)
+     * @param {object} [autoDigManager] - 자동수입 초당코인 출처 (없으면 오프라인 수입 0)
      */
-    constructor(currencyManager) {
+    constructor(currencyManager, autoDigManager = null) {
         this.currencyManager = currencyManager;
+        this.autoDigManager = autoDigManager;
         this.lastSeenTime = null;     // null = 최초 실행 (보상 없음)
         this.load();
+    }
+
+    // 인부 총 초당코인 (인부 없으면 0)
+    getRatePerSecond() {
+        return this.autoDigManager ? this.autoDigManager.getTotalPerSecond() : 0;
     }
 
     load() {
@@ -51,12 +59,15 @@ export default class OfflineRewardManager {
     }
 
     // 아직 받지 않은 보상 (코인) 계산 (claim 호출 전까지 누적)
+    //   = 인부 총 초당코인 × 떠나있던 초 (8시간 캡). 인부 없으면 0.
     getPendingReward() {
         if (!this.lastSeenTime) return 0;
+        const rate = this.getRatePerSecond();
+        if (rate <= 0) return 0;                          // 인부 없으면 오프라인 수입 없음
         const elapsed = this.getElapsedSeconds();
         if (elapsed < MIN_THRESHOLD_SECONDS) return 0;
         const capped = Math.min(elapsed, MAX_SECONDS);
-        return Math.floor(capped * COIN_PER_SECOND);
+        return Math.floor(capped * rate);
     }
 
     // 보상 적용 + 시각 리셋. 받은 액수 반환

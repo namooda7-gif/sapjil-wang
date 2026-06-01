@@ -11,6 +11,7 @@ import Phaser from 'phaser';
 import CurrencyManager from '../managers/CurrencyManager.js';
 import OfflineRewardManager from '../managers/OfflineRewardManager.js';
 import AttendanceManager from '../managers/AttendanceManager.js';
+import AutoDigManager from '../managers/AutoDigManager.js';
 import SoundManager from '../managers/SoundManager.js';
 
 // 캐릭터 터치 시 순환 라인 (인덱스 0은 초기 말풍선과 동일)
@@ -57,7 +58,9 @@ export default class MenuScene extends Phaser.Scene {
 
         // ━━━━ 사용자 상태 (신규 vs 재진입) ━━━━
         this.currencyManager = new CurrencyManager();
-        this.offlineRewardManager = new OfflineRewardManager(this.currencyManager);
+        // STEP5: 오프라인 보상이 인부 자동수입 기반이 되도록 AutoDigManager 주입
+        this.autoDigManager = new AutoDigManager(this.currencyManager);
+        this.offlineRewardManager = new OfflineRewardManager(this.currencyManager, this.autoDigManager);
         const cm = this.currencyManager;
         const isFirstTime =
             this.offlineRewardManager.lastSeenTime === null &&
@@ -861,9 +864,10 @@ export default class MenuScene extends Phaser.Scene {
         const cardBg = this.add.rectangle(0, 0, cardW, cardH, 0x2a1a0a, 1)
             .setStrokeStyle(6, 0xffd700);
 
-        const sleepIcon = this.add.text(0, -160, '💤', { font: '96px sans-serif' }).setOrigin(0.5);
-        const line1 = this.add.text(0, -50, '오프라인 동안', { font: 'bold 32px sans-serif', color: '#ffffff' }).setOrigin(0.5);
-        const line2 = this.add.text(0, -10, '박삽돌이 혼자 팠어요!', { font: 'bold 32px sans-serif', color: '#ffffff' }).setOrigin(0.5);
+        // STEP5: 자동수입 = 인부들이 벌어놓은 코인 (테마 통일)
+        const sleepIcon = this.add.text(0, -160, '👷', { font: '96px sans-serif' }).setOrigin(0.5);
+        const line1 = this.add.text(0, -50, '자리 비운 사이', { font: 'bold 32px sans-serif', color: '#ffffff' }).setOrigin(0.5);
+        const line2 = this.add.text(0, -10, '인부들이 벌어놨어요!', { font: 'bold 32px sans-serif', color: '#ffffff' }).setOrigin(0.5);
         const elapsed = this.add.text(0, 40, `(${elapsedStr} 동안)`, { font: '22px sans-serif', color: '#cccccc' }).setOrigin(0.5);
         const reward = this.add.text(0, 110, `🪙 +${rewardCoin.toLocaleString()} 삽코인 획득!`, {
             font: 'bold 36px sans-serif', color: '#ffd700',
