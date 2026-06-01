@@ -381,12 +381,21 @@ export function getNextLayer(currentOrder) {
 }
 
 // 보물 등급별 가중치 기반 랜덤 선택 (보물이 출현했을 때 어떤 등급인지)
-export function rollTreasureRarity() {
-    const rarities = Object.entries(TREASURE_RARITY);
-    const totalWeight = rarities.reduce((sum, [, v]) => sum + v.weight, 0);
+// 2026-06-01 STEP2: deepStage(무한 심층 단계)가 깊을수록 rare/epic/legendary 가중치 상승,
+//   common 가중치는 점감 → 깊이 파고들수록 좋은 보물이 더 자주. deepStage 0 = 기존 동작 그대로.
+export function rollTreasureRarity(deepStage = 0) {
+    const boost = Math.max(0, Math.min(deepStage, 20));   // 과도 인플레 방지 캡 (20단계)
+    const weights = {
+        common:    Math.max(10, TREASURE_RARITY.common.weight    - boost * 2.0),
+        rare:      TREASURE_RARITY.rare.weight      + boost * 1.0,
+        epic:      TREASURE_RARITY.epic.weight      + boost * 0.7,
+        legendary: TREASURE_RARITY.legendary.weight + boost * 0.4
+    };
+    const entries = Object.entries(weights);
+    const totalWeight = entries.reduce((sum, [, w]) => sum + w, 0);
     let r = Math.random() * totalWeight;
-    for (const [key, val] of rarities) {
-        r -= val.weight;
+    for (const [key, w] of entries) {
+        r -= w;
         if (r <= 0) return key;
     }
     return 'common';

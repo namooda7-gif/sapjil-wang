@@ -4,6 +4,7 @@ import Phaser from 'phaser';
 import SoundManager from '../managers/SoundManager.js';
 import CurrencyManager from '../managers/CurrencyManager.js';
 import {
+    LAYERS,
     getLayerByOrder,
     rollTreasureRarity,
     rollTreasureFromLayer,
@@ -12,6 +13,22 @@ import {
 
 // 보물 출현 기본 확률 (CLAUDE.md: 5%)
 const TREASURE_BASE_RATE = 0.05;
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+// 무한 심층 모드 (2026-06-01 STEP2)
+//   레이어 6(콘서트장) 클리어 후 메뉴 복귀 대신 "무한 심층"으로 진입.
+//   - 배경/지표면은 layer_006 자산 재사용 + 기존 B-2 지하 무한 루프 그대로
+//   - 심층 단계마다 requiredDigs 상승 (오직 상승, 절대 하향 금지 — §진행속도 결정)
+//   - 깊을수록 코인 배율 상승 (탭+보물 수입에만 적용. 자동삽질 수입엔 미적용 — 인플레 방지 결정)
+//   - 보물은 전 레이어 통합 풀(114종)에서 출현, 깊을수록 상위 등급 가중치 상승
+//   - 매 DEEP_MILESTONE_M 깊이마다 다이아 보너스
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+const DEEP_BASE_REQUIRED       = 1100;   // 심층 1단계 기준 필요 삽질수 (레이어6과 동일선)
+const DEEP_REQUIRED_GROWTH     = 250;    // 단계마다 +250 (상승만)
+const DEEP_COIN_MULT_PER_STAGE = 0.15;   // 단계마다 코인 +15% (1단계 1.15x, 2단계 1.30x ...)
+const DEEP_MILESTONE_M         = 100;    // 100m마다 깊이 마일스톤 보너스
+// 전 레이어 보물 통합 풀 (심층 모드 보물 출현용) — 모듈 로드 시 1회 계산
+const ALL_TREASURES = LAYERS.reduce((acc, l) => acc.concat(l.treasures || []), []);
 
 // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 // 배경 이미지 / 캐릭터 위치 상수 (사장님 명세)
@@ -449,6 +466,11 @@ export default class GameScene extends Phaser.Scene {
         // 깊이 누적 (탭마다 +10cm) - 세션 동안만 유지
         this.totalDepthCm = 0;
         this.depthText = null;                // create()에서 생성
+
+        // ━━ 무한 심층 모드 (2026-06-01 STEP2) ━━
+        this.deepMode = false;                // 레이어 6 이후 무한 심층 진입 시 true
+        this.deepStage = 0;                   // 심층 단계 (1, 2, 3 ...)
+        this.lastDepthMilestoneM = 0;         // 마지막으로 보너스 준 깊이(m) 마일스톤
 
         // ━━ SOUL-OUT 게이지 ━━
         this.soulGauge          = SOUL_MAX;   // 0~100
@@ -893,12 +915,65 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 무한 심층 모드 헬퍼 (2026-06-01 STEP2)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 심층 단계(1,2,3...)에 대한 합성 레이어 객체 생성.
+    //   배경/지표면/BGM은 layer_006 자산을 재사용(bgId), 보물은 전 레이어 통합 풀.
+    buildDeepLayer(stage) {
+        const base = getLayerByOrder(6) || {};
+        return {
+            id: `deep_${stage}`,
+            bgId: 'layer_006',                 // bgKey/지표면 측정/BGM은 layer_006 자산 재사용
+            name: `지하 심층 ${stage}단계`,
+            nameEn: `Deep Layer ${stage}`,
+            category: 'deep',
+            region: '심층',
+            order: 6 + stage,
+            characterY: base.characterY ?? 0.74,
+            // requiredDigs 는 오직 상승 (절대 하향 금지 — §진행속도 결정)
+            requiredDigs: DEEP_BASE_REQUIRED + (stage - 1) * DEEP_REQUIRED_GROWTH,
+            bgColor: base.bgColor, bgColorHex: base.bgColorHex, groundColor: base.groundColor,
+            soilType: base.soilType || 'concrete',
+            comicEvent: null,                  // 심층엔 NPC 코믹 이벤트 없음
+            treasures: ALL_TREASURES,          // 통합 114종 풀에서 출현
+            // 클리어 보상도 단계 비례 상승
+            clearReward: {
+                coin:    Math.round((base.clearReward?.coin || 8000) * (1 + stage * 0.5)),
+                relic:   (base.clearReward?.relic || 35) + stage * 3,
+                diamond: (base.clearReward?.diamond || 5) + Math.floor(stage / 2)
+            },
+            unlockMessage: `🔥 무한 심층 ${stage}단계! 더 깊이 파고들자!`,
+            clearMessage:  `심층 ${stage}단계 돌파! 더 깊은 곳으로...`,
+            isDeep: true,
+            deepStage: stage
+        };
+    }
+
+    // 심층 코인 배율 (탭+보물 수입에만 적용. 자동삽질 수입엔 미적용 — 인플레 방지 결정)
+    getDeepCoinMult() {
+        if (!this.deepMode) return 1.0;
+        return 1.0 + this.deepStage * DEEP_COIN_MULT_PER_STAGE;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     // 레이어 로딩 (배경/필요삽질수/소일타입 모두 layerData에서 가져옴)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     loadLayer(order) {
-        const layer = getLayerByOrder(order);
+        let layer = getLayerByOrder(order);
 
-        // 마지막 레이어 (layer_006) 클리어 후 다음이 없으면 메뉴로 복귀
+        // 레이어 6 이후(다음 레이어 없음) → 메뉴 복귀 대신 무한 심층 모드 진입/계속
+        if (!layer && order > 6) {
+            const stage = order - 6;
+            layer = this.buildDeepLayer(stage);
+            this.deepMode = true;
+            this.deepStage = stage;
+        } else {
+            // 일반 레이어(1~6)면 심층 모드 해제
+            this.deepMode = false;
+            this.deepStage = 0;
+        }
+
+        // 그래도 레이어가 없으면(order<=6인데 누락 등 비정상) 안전하게 메뉴 복귀
         if (!layer) {
             const { width, height } = this.cameras.main;
             this.showFloatingText(width / 2, height / 2, '🎉 한국 정복 완료!\n다음 업데이트를 기다려줘!', '#ffd700');
@@ -951,7 +1026,11 @@ export default class GameScene extends Phaser.Scene {
 
         // 레이어 배경 이미지 교체 + 타일 스케일 재계산 + 초기 tilePositionY 리셋
         // 새 레이어는 항상 원본 텍스처(지상~지하 전체)부터 시작 → 루프 플래그도 리셋
-        const bgKey = `${layer.id}_bg`;
+        // STEP2: 심층 레이어는 layer_006 자산 재사용 → bgId로 우회 (없으면 자기 id)
+        //   ensureLoopTexture(무한 지하 루프)도 이 bgSrcId를 써야 함 (deep_N_bg는 존재 X → 루프 실패 방지)
+        const bgSrcId = layer.bgId || layer.id;
+        this.currentBgSrcId = bgSrcId;
+        const bgKey = `${bgSrcId}_bg`;
         this.usingLoopTexture = false;
         this.virtualScrollY = 0;
 
@@ -959,12 +1038,12 @@ export default class GameScene extends Phaser.Scene {
         //   사장님 보고: 레이어 3/4/5는 굴 시작이 지표면 아래로 어긋남
         //   원인: 자산마다 SURFACE_TEXTURE_Y(=903) 가정과 다른 row에 지표면 픽셀
         //   처방: brightness drop으로 자동 검출 + override map 미세 조정 지원
-        const override = LAYER_SURFACE_Y_OVERRIDE[layer.id];
+        const override = LAYER_SURFACE_Y_OVERRIDE[bgSrcId];
         const measured = (override == null) ? this.measureSurfaceRow(bgKey) : null;
         this.currentSurfaceTextureY =
             (override != null)  ? override  :
             (measured != null)  ? measured  : SURFACE_TEXTURE_Y;
-        console.log(`[surface row] ${layer.id}: measured=${measured} override=${override} → ${this.currentSurfaceTextureY}`);
+        console.log(`[surface row] ${layer.id}(bg:${bgSrcId}): measured=${measured} override=${override} → ${this.currentSurfaceTextureY}`);
         if (this.bgImage && this.textures.exists(bgKey)) {
             this.bgImage.setTexture(bgKey);
             this.applyBackgroundCoverFit();
@@ -1021,8 +1100,9 @@ export default class GameScene extends Phaser.Scene {
 
         // 레이어별 BGM 자동 전환 (id 'layer_001' → 키 'bgm_layer001')
         // 같은 BGM 중복 호출은 SoundManager 내부에서 무시되므로 안전
-        if (this.soundManager && layer.id) {
-            const bgmKey = layer.id.replace('layer_', 'bgm_layer');
+        // STEP2: 심층 레이어도 bgSrcId(layer_006) 기준 BGM 유지 (콘서트장 BGM 계속)
+        if (this.soundManager && bgSrcId) {
+            const bgmKey = bgSrcId.replace('layer_', 'bgm_layer');
             this.soundManager.playBGM(bgmKey);
         }
 
@@ -1201,8 +1281,8 @@ export default class GameScene extends Phaser.Scene {
                     Math.max(0, BG_IMAGE_HEIGHT - gameH - 400)
                 );
                 if (newTilePos >= transitionRow) {
-                    // 임계점 도달 → 루프 텍스처로 전환
-                    const loopKey = this.ensureLoopTexture(this.layerData && this.layerData.id, transitionRow);
+                    // 임계점 도달 → 루프 텍스처로 전환 (STEP2: 심층은 bgSrcId=layer_006 기준)
+                    const loopKey = this.ensureLoopTexture(this.currentBgSrcId || (this.layerData && this.layerData.id), transitionRow);
                     if (loopKey) {
                         this.bgImage.setTexture(loopKey);
                         this.applyBackgroundCoverFit();
@@ -1230,8 +1310,24 @@ export default class GameScene extends Phaser.Scene {
 
         // 깊이 누적 (1탭 = 10cm) + 텍스트 갱신
         this.totalDepthCm = (this.totalDepthCm || 0) + 10;
+        const depthM = this.totalDepthCm / 100;
         if (this.depthText) {
-            this.depthText.setText(`지하 ${(this.totalDepthCm / 100).toFixed(1)}m`);
+            // 심층 모드면 단계도 함께 표시
+            this.depthText.setText(
+                this.deepMode
+                    ? `🔥심층 ${this.deepStage}단계 · 지하 ${depthM.toFixed(1)}m`
+                    : `지하 ${depthM.toFixed(1)}m`
+            );
+        }
+
+        // ━━ 깊이 마일스톤 보너스 (STEP2): 매 DEEP_MILESTONE_M(=100m)마다 다이아 ━━
+        // totalDepthCm는 전 레이어 누적 → 한 탭에 100m를 넘는 일은 없으나, 안전하게 while로 처리
+        while (depthM >= this.lastDepthMilestoneM + DEEP_MILESTONE_M) {
+            this.lastDepthMilestoneM += DEEP_MILESTONE_M;
+            const bonusDia = 1 + Math.floor(this.lastDepthMilestoneM / 500); // 깊을수록 소폭 상승
+            this.currencyManager.addDiamond(bonusDia);
+            this.showFloatingText(x, y - 90, `🏅 ${this.lastDepthMilestoneM}m 돌파! 🪙+${bonusDia} 금괴`, '#ffd700');
+            this.soundManager.triggerHaptic('medium');
         }
 
         // ━━ 코인 획득 ━━
@@ -1245,6 +1341,8 @@ export default class GameScene extends Phaser.Scene {
         if (this.activeBuffs.coin > now) coinGain = Math.floor(coinGain * DRINK_BONUS.coin);
         // POWER DIG 정조준 보너스: 이번 탭 코인 ×2 (다른 모든 보너스 곱 후 마지막 적용)
         if (powerDigHit) coinGain = Math.floor(coinGain * POWERDIG_BONUS_COIN_MULT);
+        // STEP2: 무한 심층 코인 배율 (탭 수입에 적용. 자동삽질 수입엔 미적용 — 인플레 방지 결정)
+        if (this.deepMode) coinGain = Math.floor(coinGain * this.getDeepCoinMult());
         this.currencyManager.addCoin(coinGain);
         // 코인 획득 사운드 (매 탭마다 살짝 다른 피치)
         this.soundManager.playCoinSound();
@@ -1608,13 +1706,15 @@ export default class GameScene extends Phaser.Scene {
         if (this.treasurePopupActive) return;
         if (!this.layerData) return;
 
-        const rarityKey = rollTreasureRarity();
+        // STEP2: 심층 모드면 단계만큼 상위 등급 가중치 상승 (deepStage 0 = 기존 분포)
+        const rarityKey = rollTreasureRarity(this.deepMode ? this.deepStage : 0);
         const treasure = rollTreasureFromLayer(this.layerData, rarityKey);
         if (!treasure) return;
 
-        // 보상 적용
+        // 보상 적용 (코인은 심층 배율 적용 — 탭 수입과 동일 정책)
         const r = treasure.reward || {};
-        if (r.coin)    this.currencyManager.addCoin(r.coin);
+        const deepMult = this.getDeepCoinMult();
+        if (r.coin)    this.currencyManager.addCoin(Math.floor(r.coin * deepMult));
         if (r.relic)   this.currencyManager.addRelic(r.relic);
         if (r.diamond) this.currencyManager.addDiamond(r.diamond);
 
@@ -3059,7 +3159,7 @@ export default class GameScene extends Phaser.Scene {
                     LOOP_START_ROW,
                     Math.max(0, BG_IMAGE_HEIGHT - gameH - 400)
                 );
-                const loopKey = this.ensureLoopTexture(this.layerData && this.layerData.id, transitionRow);
+                const loopKey = this.ensureLoopTexture(this.currentBgSrcId || (this.layerData && this.layerData.id), transitionRow);
                 if (loopKey) {
                     const currentTilePos = this.bgImage.tilePositionY;
                     this.bgImage.setTexture(loopKey);
@@ -4199,7 +4299,8 @@ export default class GameScene extends Phaser.Scene {
         this.diamondText.setText(`💎 ${this.currencyManager.diamond}`);
         this.relicText.setText(`🏺 ${this.currencyManager.relic}`);
         if (this.layerData) {
-            this.layerText.setText(`레이어 ${this.layerOrder}`);
+            // STEP2: 심층 모드면 "심층 N단계", 일반은 "레이어 N"
+            this.layerText.setText(this.deepMode ? `🔥 심층 ${this.deepStage}단계` : `레이어 ${this.layerOrder}`);
             this.layerNameText.setText(this.layerData.name);
             this.progressText.setText(`${this.digCount} / ${this.layerData.requiredDigs}`);
         }
