@@ -1,0 +1,63 @@
+# 삽질왕 자동 배포 — 푸시하면 GitHub Pages에 빌드 결과를 올린다.
+# 결과 주소: https://namooda7-gif.github.io/sapjil-wang/
+# 폰 크롬에서 위 주소를 열면 항상 최신 버전이 보임 (PC가 꺼져 있어도 작동).
+name: Deploy to GitHub Pages
+
+on:
+  push:
+    branches: ['**']        # 어떤 브랜치를 푸시하든 배포 (마지막 푸시가 주소에 반영됨)
+  workflow_dispatch: {}      # GitHub 화면에서 수동 실행도 가능
+
+# Pages 배포에 필요한 권한
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# 동시에 여러 배포가 겹치지 않도록 (최신 것만 진행)
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # 1) 소스 가져오기
+      - name: 체크아웃
+        uses: actions/checkout@v4
+
+      # 2) Node 설치 (vite 5 = Node 18+ 필요 → 20 사용)
+      #   package-lock.json을 커밋하지 않는 정책이라 cache·npm ci 대신 npm install 사용
+      - name: Node 설치
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      # 3) 의존성 설치 (lockfile 없이도 동작)
+      - name: 의존성 설치
+        run: npm install --no-audit --no-fund
+
+      # 4) 빌드 (결과는 dist/ 로 나옴)
+      - name: 빌드
+        run: npm run build
+
+      # 5) Pages 설정 (소스가 GitHub Actions가 아니면 자동으로 켜줌)
+      - name: Pages 설정
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      # 6) 빌드 결과 업로드
+      - name: 결과 업로드
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+      # 7) 배포
+      - name: 배포
+        id: deployment
+        uses: actions/deploy-pages@v4
