@@ -4,6 +4,7 @@ import Phaser from 'phaser';
 import SoundManager from '../managers/SoundManager.js';
 import CurrencyManager from '../managers/CurrencyManager.js';
 import AutoDigManager, { WORKERS } from '../managers/AutoDigManager.js';
+import MissionManager from '../managers/MissionManager.js';
 import {
     LAYERS,
     getLayerByOrder,
@@ -528,6 +529,8 @@ export default class GameScene extends Phaser.Scene {
         // STEP4: 자동삽질 매니저 (인부 고용/레벨업 + 매초 코인 가산)
         this.autoDigManager = new AutoDigManager(this.currencyManager);
         this.autoDigPanelOpen = false;        // 패널 열림 플래그 (열려 있으면 dig 차단)
+        // STEP6: 일일 미션 매니저 (게임 중 진행 보고 → 완료 시 자동 보상)
+        this.missionManager = new MissionManager(this.currencyManager);
 
         // 현재 사용 중인 캐릭터 ID — CurrencyManager에서 매번 갱신 (씬 재진입 시도 반영)
         // 선택 캐릭터 idle 자산 미로드 시 char_001 폴백 → 게임 깨짐 방지
@@ -1198,6 +1201,11 @@ export default class GameScene extends Phaser.Scene {
             this.triggerNosebleed();
         }
 
+        // STEP6: 일일 미션 — 콤보 30 통과 시 1회 보고 (배율로 점프해도 통과 판정)
+        if (prevCombo < 30 && this.combo >= 30) {
+            this.reportMission('combo30', 1);
+        }
+
         // ━━ 진행 카운트 멀티플라이어 (강화: 100+ 단계 추가) ━━
         //   콤보:  10+ → 1.5x  /  50+ → 2.0x  /  100+ → 3.0x (NEW)
         //   삽:    나무 1.0 / 철 1.5 / 강철 2.0 / 미스릴+ 2.5
@@ -1330,6 +1338,9 @@ export default class GameScene extends Phaser.Scene {
                     : `지하 ${depthM.toFixed(1)}m`
             );
         }
+
+        // STEP6: 일일 미션 — 지하 도달 깊이(m) 보고 (mode 'max')
+        this.reportMission('depth', depthM);
 
         // ━━ 깊이 마일스톤 보너스 (STEP2): 매 DEEP_MILESTONE_M(=100m)마다 다이아 ━━
         // totalDepthCm는 전 레이어 누적 → 한 탭에 100m를 넘는 일은 없으나, 안전하게 while로 처리
@@ -1532,6 +1543,10 @@ export default class GameScene extends Phaser.Scene {
         if (this.time.now < this.treasureBoostUntil) {
             treasureRate += OBSTACLE_BOOST_AMOUNT;
         }
+        // STEP6: 도감 완성 보너스 — 완성한 레이어 1개당 보물 확률 +5%(상대) (수집 동기 보상)
+        const dexDone = this.currencyManager.getCompletedDexLayerCount
+            ? this.currencyManager.getCompletedDexLayerCount() : 0;
+        if (dexDone > 0) treasureRate *= (1 + 0.05 * dexDone);
         if (Math.random() < treasureRate) {
             // 직전 0.3초 황금빛 + 두근두근 → 그 후 spawnTreasure
             this.playTreasureForeshadow(() => this.spawnTreasure());
@@ -1730,15 +1745,23 @@ export default class GameScene extends Phaser.Scene {
         if (r.diamond) this.currencyManager.addDiamond(r.diamond);
 
         // 박물관 수집 목록 등록 (id 기준 dedupe + count 증가)
+        // 심층 모드면 layerId/Name을 통합 풀의 보물 원소속이 아니라 "심층"으로 기록하지 않고,
+        // 보물 id 접두( t_00N_ )로 원 레이어를 추정해 도감(레이어별 수집)에 정확히 반영
+        const originLayer = this._treasureOriginLayer(treasure.id);
         this.currencyManager.addCollectedTreasure({
             id: treasure.id,
             name: treasure.name,
             rarity: rarityKey,
             desc: treasure.desc,
-            layerId: this.layerData.id,
-            layerName: this.layerData.name,
+            layerId: originLayer ? originLayer.id : this.layerData.id,
+            layerName: originLayer ? originLayer.name : this.layerData.name,
             foundAt: Date.now()
         });
+
+        // STEP6: 일일 미션 — 보물 발견 보고
+        this.reportMission('treasure', 1);
+        // STEP6: 도감(레이어 세트) 완성 체크 → 방금 보물로 한 레이어가 완성되면 축하 연출
+        this._checkDexCompletion(originLayer);
 
         // 등급별 보물 사운드 (common 2음 ~ legendary 5음 화음)
         this.soundManager.playTreasureSound(rarityKey);
@@ -3739,8 +3762,10 @@ export default class GameScene extends Phaser.Scene {
         // 탭과 무관하게 흐르는 별도 수입 스트림. 가산되면 코인 HUD만 갱신.
         if (this.autoDigManager) {
             const earned = this.autoDigManager.accrue(delta);
-            if (earned > 0 && this.coinText) {
-                this.coinText.setText(`🪙 ${this.currencyManager.coin}`);
+            if (earned > 0) {
+                if (this.coinText) this.coinText.setText(`🪙 ${this.currencyManager.coin}`);
+                // STEP6: 일일 미션 — 자동수입 코인 누적 보고
+                this.reportMission('auto_coin', earned);
             }
         }
 
@@ -4517,6 +4542,42 @@ export default class GameScene extends Phaser.Scene {
         this.autoDigPanelOpen = false;
     }
 
+    // ━━ 미션 진행 보고 헬퍼 (STEP6) ━━
+    // type/amount를 MissionManager에 넘기고, 완료된 미션이 있으면 토스트 연출
+    reportMission(type, amount = 1) {
+        if (!this.missionManager) return;
+        const completed = this.missionManager.report(type, amount);
+        if (!completed || completed.length === 0) return;
+        const { width, height } = this.cameras.main;
+        completed.forEach((m, i) => {
+            this.showFloatingText(width / 2, height * 0.34 + i * 46, `📋 미션 완료! ${m.label}`, '#7CFC00');
+        });
+        if (this.coinText) this.coinText.setText(`🪙 ${this.currencyManager.coin}`);
+        if (this.soundManager) this.soundManager.triggerHaptic('medium');
+    }
+
+    // 보물 id로 원 소속 레이어 찾기 (심층 모드 통합 풀에서도 도감을 원 레이어에 정확히 반영)
+    _treasureOriginLayer(treasureId) {
+        return LAYERS.find(l => (l.treasures || []).some(t => t.id === treasureId)) || null;
+    }
+
+    // 도감(레이어 보물 세트) 완성 체크 → 방금 완성됐으면 축하 연출 (보물확률 보너스는 dig에서 자동 반영)
+    _checkDexCompletion(layer) {
+        if (!layer || !this.currencyManager.isLayerDexComplete) return;
+        if (!this._dexAnnounced) this._dexAnnounced = new Set();
+        if (this._dexAnnounced.has(layer.id)) return;
+        if (this.currencyManager.isLayerDexComplete(layer)) {
+            this._dexAnnounced.add(layer.id);
+            const { width, height } = this.cameras.main;
+            this.showFloatingText(width / 2, height * 0.4, `🗂️ ${layer.name} 도감 완성!\n이 레이어 보물 확률 ↑`, '#ffd700');
+            this.cameras.main.flash(260, 255, 215, 0);
+            if (this.soundManager) {
+                this.soundManager.triggerHaptic('heavy');
+                if (this.soundManager.playLayerClearSound) this.soundManager.playLayerClearSound();
+            }
+        }
+    }
+
     updateHUD() {
         this.coinText.setText(`🪙 ${this.currencyManager.coin}`);
         this.diamondText.setText(`💎 ${this.currencyManager.diamond}`);
@@ -4931,6 +4992,9 @@ export default class GameScene extends Phaser.Scene {
         const cy = ob.container.y;
         if (this.dirtEmitter)       this.dirtEmitter.explode(60, cx, cy);
         if (this.dirtEmitterSquare) this.dirtEmitterSquare.explode(30, cx, cy);
+
+        // STEP6: 일일 미션 — 장애물 격파 보고
+        this.reportMission('obstacle', 1);
 
         // 보물 확률 +20% 일정 시간 부스트
         this.treasureBoostUntil = this.time.now + OBSTACLE_BOOST_MS;

@@ -12,6 +12,7 @@ import CurrencyManager from '../managers/CurrencyManager.js';
 import OfflineRewardManager from '../managers/OfflineRewardManager.js';
 import AttendanceManager from '../managers/AttendanceManager.js';
 import AutoDigManager from '../managers/AutoDigManager.js';
+import MissionManager, { formatReward } from '../managers/MissionManager.js';
 import SoundManager from '../managers/SoundManager.js';
 
 // 캐릭터 터치 시 순환 라인 (인덱스 0은 초기 말풍선과 동일)
@@ -100,9 +101,13 @@ export default class MenuScene extends Phaser.Scene {
         // 메뉴 진입 시 자동으로 안 뜨고, 우상단 🎁 버튼 누를 때만 노출
         // 오프라인 보상도 같은 패턴 (자동 X, 버튼 누름 시 X)
         this.attendanceManager = new AttendanceManager(this.currencyManager);
+        // STEP6: 일일 미션 매니저 (메뉴에서 진행도 확인 + 자정 리셋)
+        this.missionManager = new MissionManager(this.currencyManager);
 
         // 우상단 🎁 보상 버튼 — 출석 가능/오프라인 보상 있으면 빨간 점 알림
         this.createRewardButton(width - 60, 130);
+        // 우상단 📋 일일 미션 버튼
+        this.createMissionButton(width - 60, 200);
 
         // 오프라인 보상은 markSeen만 처리 (자동 받기 X)
         // — 사장님이 🎁 버튼 누르면 그제야 보상 팝업 노출
@@ -170,6 +175,97 @@ export default class MenuScene extends Phaser.Scene {
             onPress:   () => btn.setAlpha(0.6),
             onRelease: () => btn.setAlpha(1)
         });
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 📋 일일 미션 버튼 + 팝업 (STEP6)
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createMissionButton(x, y) {
+        const missions = this.missionManager.getMissions();
+        const done = this.missionManager.getCompletedCount();
+
+        this.add.circle(x, y, 38, 0x000000, 0.75).setStrokeStyle(3, 0xffd700).setDepth(50);
+        const btn = this.add.text(x, y, '📋', { font: '36px sans-serif' })
+            .setOrigin(0.5).setDepth(51).setInteractive({ useHandCursor: true });
+
+        // 진행 뱃지 (완료/전체)
+        this.add.text(x + 24, y + 22, `${done}/${missions.length}`, {
+            font: 'bold 16px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5).setDepth(52);
+
+        this.bindMobileClick(btn, () => this.showMissionPopup(), {
+            onPress:   () => btn.setAlpha(0.6),
+            onRelease: () => btn.setAlpha(1)
+        });
+    }
+
+    showMissionPopup() {
+        const { width, height } = this.cameras.main;
+        const missions = this.missionManager.getMissions();
+
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.7)
+            .setInteractive().setDepth(120);
+
+        const cardW = width * 0.9, cardH = 540;
+        const card = this.add.container(width / 2, height / 2).setDepth(121);
+        const bg = this.add.rectangle(0, 0, cardW, cardH, 0x2a1a0a, 1).setStrokeStyle(6, 0xffd700);
+        card.add(bg);
+        card.add(this.add.text(0, -cardH / 2 + 44, '📋 오늘의 미션', {
+            font: 'bold 36px sans-serif', color: '#ffd700', stroke: '#5a2d0c', strokeThickness: 5
+        }).setOrigin(0.5));
+        card.add(this.add.text(0, -cardH / 2 + 84, '매일 자정 갱신 · 완료 시 자동 지급', {
+            font: '18px sans-serif', color: '#cccccc'
+        }).setOrigin(0.5));
+
+        const rowStartY = -cardH / 2 + 150, rowGap = 112;
+        missions.forEach((m, i) => {
+            const ry = rowStartY + i * rowGap;
+            const row = this.add.container(0, ry);
+            const rw = cardW - 50, rh = 98;
+
+            const rbg = this.add.graphics();
+            rbg.fillStyle(m.claimed ? 0x2e5230 : 0x3e2723, 0.95);
+            rbg.fillRoundedRect(-rw / 2, -rh / 2, rw, rh, 12);
+            rbg.lineStyle(2, m.claimed ? 0x7CFC00 : 0x8b5a2b, 0.9);
+            rbg.strokeRoundedRect(-rw / 2, -rh / 2, rw, rh, 12);
+            row.add(rbg);
+
+            // 라벨
+            row.add(this.add.text(-rw / 2 + 18, -rh / 2 + 14, m.label, {
+                font: 'bold 22px sans-serif', color: '#ffffff'
+            }).setOrigin(0, 0));
+
+            // 진행 바
+            const barW = rw - 36, barH = 14, barY = 6;
+            const prog = Math.max(0, Math.min(1, m.progress / m.target));
+            row.add(this.add.rectangle(-rw / 2 + 18, barY, barW, barH, 0x000000, 0.5).setOrigin(0, 0.5));
+            row.add(this.add.rectangle(-rw / 2 + 18, barY, barW * prog, barH, m.claimed ? 0x7CFC00 : 0xffd700).setOrigin(0, 0.5));
+
+            // 진행 텍스트 (우상)
+            row.add(this.add.text(rw / 2 - 18, -rh / 2 + 18,
+                m.claimed ? '✅ 완료' : `${Math.min(m.progress, m.target)}/${m.target}`, {
+                font: 'bold 18px sans-serif', color: m.claimed ? '#7CFC00' : '#ffffff'
+            }).setOrigin(1, 0.5));
+
+            // 보상 (좌하)
+            row.add(this.add.text(-rw / 2 + 18, rh / 2 - 14, `보상  ${formatReward(m.reward)}`, {
+                font: '16px sans-serif', color: '#ffd700'
+            }).setOrigin(0, 1));
+
+            card.add(row);
+        });
+
+        const closeBtn = this.add.text(0, cardH / 2 - 42, '✕ 닫기', {
+            font: 'bold 26px sans-serif', color: '#ffffff',
+            backgroundColor: '#5a2d0c', padding: { x: 26, y: 12 }
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        const close = () => { card.destroy(); overlay.destroy(); };
+        closeBtn.on('pointerup', close);
+        card.add(closeBtn);
+        overlay.once('pointerdown', close);
+
+        card.setScale(0.7); card.alpha = 0;
+        this.tweens.add({ targets: card, scale: 1, alpha: 1, duration: 300, ease: 'Back.out' });
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

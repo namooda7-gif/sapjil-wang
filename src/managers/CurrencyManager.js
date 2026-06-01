@@ -2,6 +2,7 @@
 // localStorage로 로컬 저장 - 추후 FirebaseManager와 연동
 import { getShovelByLevel } from '../data/shovels.js';
 import { getCharacterById, CHARACTERS } from '../data/characters.js';
+import { LAYERS } from '../data/layers.js';
 
 const STORAGE_KEY = 'sapjilwang_currency_v1';
 
@@ -59,6 +60,38 @@ export default class CurrencyManager {
     // 박물관: 고유 보물 종류 개수
     getUniqueTreasureCount() {
         return Array.isArray(this.collectedTreasures) ? this.collectedTreasures.length : 0;
+    }
+
+    // ━━ 도감(레이어 보물 세트) — STEP6 ━━
+    // 특정 레이어의 보물을 한 종이라도 수집했는지(id 기준 set)
+    _collectedIdSet() {
+        const ids = new Set();
+        if (Array.isArray(this.collectedTreasures)) {
+            this.collectedTreasures.forEach(t => ids.add(t.id));
+        }
+        return ids;
+    }
+
+    // 레이어별 도감 진행도: { layerId, name, collected, total, complete }
+    getLayerDexProgress() {
+        const owned = this._collectedIdSet();
+        return LAYERS.map(l => {
+            const total = (l.treasures || []).length;
+            const collected = (l.treasures || []).filter(t => owned.has(t.id)).length;
+            return { layerId: l.id, name: l.name, collected, total, complete: total > 0 && collected >= total };
+        });
+    }
+
+    // 해당 레이어 도감 완성 여부 (모든 보물 id 수집)
+    isLayerDexComplete(layer) {
+        if (!layer || !Array.isArray(layer.treasures) || layer.treasures.length === 0) return false;
+        const owned = this._collectedIdSet();
+        return layer.treasures.every(t => owned.has(t.id));
+    }
+
+    // 완성된 레이어 도감 수 (보물 확률 보너스 산정용)
+    getCompletedDexLayerCount() {
+        return this.getLayerDexProgress().filter(p => p.complete).length;
     }
 
     // 박물관: 뻘짓 점수 (역발상 - 흔할수록 높은 점수)

@@ -3,6 +3,7 @@
 // 카드: 등급별 어두운 배경 + 컬러 테두리 (보물 팝업과 톤 통일)
 import Phaser from 'phaser';
 import CurrencyManager from '../managers/CurrencyManager.js';
+import { LAYERS } from '../data/layers.js';
 
 // 등급별 카드 스타일 (border 색을 fill alpha 0.15 + stroke 0.85에 함께 사용 → 유리 장식장 톤)
 const RARITY_STYLES = {
@@ -63,10 +64,17 @@ export default class MuseumScene extends Phaser.Scene {
             font: 'bold 28px sans-serif', color: '#ffffff'
         }).setOrigin(0.5);
 
-        this.add.text(width / 2, 170, `🎭 뻘짓 점수 ${sillyScore.toLocaleString()}점`, {
-            font: 'bold 26px sans-serif',
+        this.add.text(width / 2, 168, `🎭 뻘짓 점수 ${sillyScore.toLocaleString()}점`, {
+            font: 'bold 24px sans-serif',
             color: '#ffd700',
             stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5);
+
+        // STEP6: 도감 완성 현황 (레이어 세트)
+        const dexDone = this.currencyManager.getCompletedDexLayerCount
+            ? this.currencyManager.getCompletedDexLayerCount() : 0;
+        this.add.text(width / 2, 202, `🗂️ 도감 ${dexDone}/${LAYERS.length} 레이어 완성`, {
+            font: 'bold 22px sans-serif', color: '#ffffff', stroke: '#000', strokeThickness: 3
         }).setOrigin(0.5);
 
         // ━━━ 그리드 (스크롤 컨테이너) ━━━
@@ -116,7 +124,10 @@ export default class MuseumScene extends Phaser.Scene {
         this.scrollContainer = this.add.container(0, VIEWPORT_TOP + 30);
         this.scrollContainer.setMask(mask);
 
-        // 카드 배치
+        // STEP6: 상단에 레이어별 도감 진행 섹션 (스크롤 컨테이너 맨 위)
+        const dexH = this.buildDexSection(width);
+
+        // 카드 배치 (도감 섹션 높이만큼 아래로 오프셋)
         const totalRowSpan = CARD_H + CARD_GAP_Y;
         const cardOffsetX = (width - GRID_COLS * CARD_W - (GRID_COLS - 1) * CARD_GAP_X) / 2;
 
@@ -124,14 +135,14 @@ export default class MuseumScene extends Phaser.Scene {
             const row = Math.floor(i / GRID_COLS);
             const col = i % GRID_COLS;
             const cx  = cardOffsetX + col * (CARD_W + CARD_GAP_X) + CARD_W / 2;
-            const cy  = row * totalRowSpan + CARD_H / 2;
+            const cy  = dexH + row * totalRowSpan + CARD_H / 2;
             const card = this.createTreasureCard(t, cx, cy);
             this.scrollContainer.add(card);
         });
 
-        // 스크롤 한계 계산
+        // 스크롤 한계 계산 (도감 섹션 높이 포함)
         const totalRows  = Math.ceil(treasures.length / GRID_COLS);
-        const totalH     = totalRows * totalRowSpan - CARD_GAP_Y;
+        const totalH     = dexH + totalRows * totalRowSpan - CARD_GAP_Y;
         const scrollMin  = Math.min(0, viewportH - 30 - totalH);  // 음수 (위로 올림)
         const scrollMax  = 0;
         const startY     = VIEWPORT_TOP + 30;
@@ -166,6 +177,62 @@ export default class MuseumScene extends Phaser.Scene {
         this.input.on('pointerup', () => {
             dragStartY = null;
         });
+    }
+
+    // STEP6: 레이어별 도감 진행 섹션 (스크롤 컨테이너 상단). 사용한 세로 높이 반환.
+    buildDexSection(width) {
+        const progress = this.currencyManager.getLayerDexProgress
+            ? this.currencyManager.getLayerDexProgress() : [];
+        if (progress.length === 0) return 0;
+
+        const sectionW = Math.min(width - 40, GRID_COLS * CARD_W + CARD_GAP_X);
+        const x0 = (width - sectionW) / 2;
+        let y = 10;
+
+        // 섹션 타이틀
+        const title = this.add.text(width / 2, y + 14, '🗂️ 레이어 도감', {
+            font: 'bold 26px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5, 0);
+        this.scrollContainer.add(title);
+        y += 56;
+
+        const ROW_H = 60, ROW_GAP = 10;
+        progress.forEach(p => {
+            const cy = y + ROW_H / 2;
+            const row = this.add.container(0, cy);
+
+            const bg = this.add.graphics();
+            const border = p.complete ? 0xffd700 : 0x666666;
+            bg.fillStyle(0x2a1a0a, 0.9);
+            bg.fillRoundedRect(x0, -ROW_H / 2, sectionW, ROW_H, 12);
+            bg.lineStyle(p.complete ? 3 : 2, border, 0.9);
+            bg.strokeRoundedRect(x0, -ROW_H / 2, sectionW, ROW_H, 12);
+            row.add(bg);
+
+            // 레이어 이름 (좌)
+            row.add(this.add.text(x0 + 18, 0, p.name, {
+                font: 'bold 22px sans-serif', color: p.complete ? '#ffd700' : '#ffffff'
+            }).setOrigin(0, 0.5));
+
+            // 진행도 N/total 또는 완성 뱃지 (우)
+            const rightX = x0 + sectionW - 18;
+            if (p.complete) {
+                row.add(this.add.text(rightX, 0, '✅ 완성 · 보물확률+5%', {
+                    font: 'bold 18px sans-serif', color: '#ffd700'
+                }).setOrigin(1, 0.5));
+            } else {
+                row.add(this.add.text(rightX, 0, `${p.collected} / ${p.total}`, {
+                    font: 'bold 22px sans-serif', color: '#cccccc'
+                }).setOrigin(1, 0.5));
+            }
+
+            this.scrollContainer.add(row);
+            y += ROW_H + ROW_GAP;
+        });
+
+        // 도감 섹션과 보물 카드 사이 여백
+        y += 24;
+        return y;
     }
 
     // 보물 카드 1장 (Container) - 등급별 색상 + 5필드 (등급/이름/레이어/설명/점수)
