@@ -30,3 +30,17 @@ src/firebase-config.js
 
 # Claude Code 내부 상태 (커밋 금지)
 .claude/
+
+# 임시 이미지 처리 파이썬 스크립트 (자산 슬라이싱/리사이징용 일회성 도구 — 커밋 제외)
+draw_memo.py
+extract_*.py
+layer*_fix.py
+process_*.py
+resize_*.py
+scale_up.py
+split*.py
+
+# 보물 자산 작업 백업/중간 산출물 (커밋 제외)
+public/assets/treasures_backup/
+public/assets/treasures/new/
+public/assets/treasures/*_old.png
