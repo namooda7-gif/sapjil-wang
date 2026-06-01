@@ -3,6 +3,7 @@
 import Phaser from 'phaser';
 import SoundManager from '../managers/SoundManager.js';
 import CurrencyManager from '../managers/CurrencyManager.js';
+import AutoDigManager, { WORKERS } from '../managers/AutoDigManager.js';
 import {
     LAYERS,
     getLayerByOrder,
@@ -524,6 +525,9 @@ export default class GameScene extends Phaser.Scene {
         // 매니저 초기화
         this.soundManager = new SoundManager(this);
         this.currencyManager = new CurrencyManager();
+        // STEP4: 자동삽질 매니저 (인부 고용/레벨업 + 매초 코인 가산)
+        this.autoDigManager = new AutoDigManager(this.currencyManager);
+        this.autoDigPanelOpen = false;        // 패널 열림 플래그 (열려 있으면 dig 차단)
 
         // 현재 사용 중인 캐릭터 ID — CurrencyManager에서 매번 갱신 (씬 재진입 시도 반영)
         // 선택 캐릭터 idle 자산 미로드 시 char_001 폴백 → 게임 깨짐 방지
@@ -810,6 +814,11 @@ export default class GameScene extends Phaser.Scene {
             this.scene.start('MenuScene');
         });
         menuBtn.on('pointerout', () => menuBtn.setAlpha(1));
+
+        // ━━━ 인부(자동삽질) 버튼 — STEP4 ━━━
+        // 우측 중단에 세로로 배치 (좌하단 깊이표시 / 우하단 메뉴 / 상단 재화HUD와 안 겹침)
+        // depth 20(HUD 레벨) + topOnly 입력 → 탭 시 뒤 tapZone(dig) 안 터짐
+        this.createAutoDigButton();
 
         // 모든 의존 객체(라벨/구멍/흙더미) 위치를 캐릭터 y 기준으로 동기화
         // (create 안에서 이미 character.y 기반으로 만들어졌지만 안전망)
@@ -1132,6 +1141,8 @@ export default class GameScene extends Phaser.Scene {
         // 보물 팝업 / 클리어 연출 중엔 삽질 차단
         if (this.treasurePopupActive) return;
         if (this.clearActive) return;
+        // 인부 관리 패널 열려 있으면 삽질 차단 (오버레이 + 이중 안전장치)
+        if (this.autoDigPanelOpen) return;
         if (!this.layerData) return;
 
         // ━━ 번아웃 중이면 dig 차단 (5초 자동 정지) ━━
@@ -3724,6 +3735,15 @@ export default class GameScene extends Phaser.Scene {
         this.drawUndergroundOverlay();
         this.drawBuffHUD();
 
+        // ━━ 자동삽질(인부) 매초 코인 가산 (STEP4) ━━
+        // 탭과 무관하게 흐르는 별도 수입 스트림. 가산되면 코인 HUD만 갱신.
+        if (this.autoDigManager) {
+            const earned = this.autoDigManager.accrue(delta);
+            if (earned > 0 && this.coinText) {
+                this.coinText.setText(`🪙 ${this.currencyManager.coin}`);
+            }
+        }
+
         // 파티클이 흙더미 bbox 안에 들어오면 즉시 사라짐 (alpha 0 처리)
         // 원/사각 두 emitter 모두 검사
         if (this.leftMoundBBox || this.rightMoundBBox) {
@@ -4294,6 +4314,209 @@ export default class GameScene extends Phaser.Scene {
     }
 
     // HUD 갱신
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 자동삽질(인부) UI — STEP4
+    //   우측 버튼 → 패널(인부 3종 고용/레벨업) → 매초 코인 가산은 update()에서 처리
+    //   depth 20(버튼) / 60~61(패널) 으로 탭 삽질(tapZone depth0)과 분리
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    createAutoDigButton() {
+        const { width, height } = this.cameras.main;
+        const bx = width - 62;
+        const by = height * 0.52;
+        const w = 96, h = 96, r = 18;
+
+        const btn = this.add.container(bx, by).setDepth(20);
+        const g = this.add.graphics();
+        g.fillStyle(0x3e2723, 0.92);
+        g.fillRoundedRect(-w / 2, -h / 2, w, h, r);
+        g.lineStyle(3, 0xffd700, 1);
+        g.strokeRoundedRect(-w / 2, -h / 2, w, h, r);
+        const icon  = this.add.text(0, -14, '👷', { font: '40px sans-serif' }).setOrigin(0.5);
+        const label = this.add.text(0, 28, '인부', {
+            font: 'bold 20px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5);
+        btn.add([g, icon, label]);
+
+        btn.setInteractive(new Phaser.Geom.Rectangle(-w / 2, -h / 2, w, h), Phaser.Geom.Rectangle.Contains);
+        btn.on('pointerdown', () => btn.setScale(0.94));
+        btn.on('pointerout',  () => btn.setScale(1));
+        btn.on('pointerup',   () => { btn.setScale(1); this.openAutoDigPanel(); });
+        this.autoDigButton = btn;
+
+        // 버튼 위 총 초당코인 미니 뱃지 (0이면 숨김)
+        this.autoDigRateBadge = this.add.text(bx, by - h / 2 - 16, '', {
+            font: 'bold 18px sans-serif', color: '#ffd700', stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5).setDepth(20);
+        this.refreshAutoDigBadge();
+    }
+
+    // 총 초당코인 뱃지 갱신 (고용/레벨업 시 + 생성 시 호출)
+    refreshAutoDigBadge() {
+        if (!this.autoDigRateBadge) return;
+        const ps = this.autoDigManager ? this.autoDigManager.getTotalPerSecond() : 0;
+        this.autoDigRateBadge.setText(ps > 0 ? `🪙+${ps}/초` : '');
+    }
+
+    openAutoDigPanel() {
+        if (this.autoDigPanelOpen) return;
+        this.autoDigPanelOpen = true;
+        const { width, height } = this.cameras.main;
+        const DEPTH = 60;
+
+        // 딤 오버레이 — 탭 흡수 + 바깥 탭하면 닫힘
+        const overlay = this.add.rectangle(width / 2, height / 2, width, height, 0x000000, 0.6)
+            .setDepth(DEPTH).setInteractive();
+        overlay.on('pointerdown', () => this.closeAutoDigPanel());
+
+        const pw = Math.min(width * 0.92, 660);
+        const ph = 600;
+        const panel = this.add.container(width / 2, height / 2).setDepth(DEPTH + 1);
+
+        // 본체 배경
+        const bg = this.add.graphics();
+        bg.fillStyle(0x2b1a12, 0.98);
+        bg.fillRoundedRect(-pw / 2, -ph / 2, pw, ph, 24);
+        bg.lineStyle(4, 0xffd700, 1);
+        bg.strokeRoundedRect(-pw / 2, -ph / 2, pw, ph, 24);
+        panel.add(bg);
+
+        // 패널 안쪽 탭 흡수용 투명 블로커 (이게 없으면 패널 본체 탭이 오버레이로 새어나가 닫힘)
+        const blocker = this.add.rectangle(0, 0, pw, ph, 0x000000, 0).setInteractive();
+        panel.add(blocker);
+
+        // 제목 + 총 자동수입
+        const title = this.add.text(0, -ph / 2 + 42, '👷 인부 관리', {
+            font: 'bold 38px sans-serif', color: '#ffd700', stroke: '#5a2d0c', strokeThickness: 5
+        }).setOrigin(0.5);
+        const totalPs = this.autoDigManager.getTotalPerSecond();
+        const totalText = this.add.text(0, -ph / 2 + 88, `자동 수입  🪙 +${totalPs}/초`, {
+            font: 'bold 24px sans-serif', color: '#ffffff', stroke: '#000', strokeThickness: 3
+        }).setOrigin(0.5);
+        panel.add([title, totalText]);
+
+        // 인부 행 3개
+        const rowStartY = -150;
+        const rowGap = 116;
+        WORKERS.forEach((wdef, i) => {
+            panel.add(this._buildWorkerRow(wdef, pw, rowStartY + i * rowGap));
+        });
+
+        // 번아웃 말풍선 (레벨 높은 인부 랜덤) — 캡처/공유 포인트
+        this.maybeShowWorkerBurnout(panel, pw, ph);
+
+        // 닫기 버튼
+        const closeBtn = this.add.text(0, ph / 2 - 46, '✕ 닫기', {
+            font: 'bold 26px sans-serif', color: '#ffffff',
+            backgroundColor: '#5a2d0c', padding: { x: 26, y: 12 }
+        }).setOrigin(0.5).setInteractive({ useHandCursor: true });
+        closeBtn.on('pointerup', () => this.closeAutoDigPanel());
+        panel.add(closeBtn);
+
+        this.autoDigOverlay = overlay;
+        this.autoDigPanel = panel;
+
+        // 등장 연출
+        panel.setScale(0.9).setAlpha(0);
+        this.tweens.add({ targets: panel, scale: 1, alpha: 1, duration: 180, ease: 'Back.out' });
+    }
+
+    // 인부 1행 (아이콘 / 이름·레벨 / 초당수입 / 고용·레벨업 버튼)
+    _buildWorkerRow(wdef, pw, y) {
+        const row = this.add.container(0, y);
+        const rw = pw - 50, rh = 100, r = 14;
+
+        const bg = this.add.graphics();
+        bg.fillStyle(0x3e2723, 1);
+        bg.fillRoundedRect(-rw / 2, -rh / 2, rw, rh, r);
+        bg.lineStyle(2, 0x8b5a2b, 1);
+        bg.strokeRoundedRect(-rw / 2, -rh / 2, rw, rh, r);
+        row.add(bg);
+
+        const level     = this.autoDigManager.getLevel(wdef.id);
+        const income    = this.autoDigManager.getIncome(wdef.id);
+        const cost      = this.autoDigManager.getCost(wdef.id);
+        const canAfford = this.autoDigManager.canLevelUp(wdef.id);
+
+        row.add(this.add.text(-rw / 2 + 44, 0, wdef.emoji, { font: '44px sans-serif' }).setOrigin(0.5));
+        row.add(this.add.text(-rw / 2 + 84, -22, `${wdef.name}  Lv.${level}`, {
+            font: 'bold 24px sans-serif', color: '#ffffff'
+        }).setOrigin(0, 0.5));
+        row.add(this.add.text(-rw / 2 + 84, 16, level > 0 ? `🪙 +${income}/초` : '아직 고용 전', {
+            font: '20px sans-serif', color: level > 0 ? '#ffd700' : '#aaaaaa'
+        }).setOrigin(0, 0.5));
+
+        // 고용/레벨업 버튼 (우측, 3D 눌림 피드백)
+        const btnLabel = level === 0 ? '고용' : '레벨업';
+        const btnW = 156, btnH = 66;
+        const btnX = rw / 2 - btnW / 2 - 12;
+        const btn = this.add.container(btnX, 0);
+        const colTop = canAfford ? 0xffcc00 : 0x5a4030;
+        const colBot = canAfford ? 0xc49a00 : 0x3a2a1f;
+        const sg = this.add.graphics(); sg.fillStyle(colBot, 1); sg.fillRoundedRect(-btnW / 2, -btnH / 2 + 5, btnW, btnH, 12);
+        const tg = this.add.graphics(); tg.fillStyle(colTop, 1); tg.fillRoundedRect(-btnW / 2, -btnH / 2, btnW, btnH, 12);
+        const bl = this.add.text(0, -11, btnLabel, {
+            font: 'bold 22px sans-serif', color: canAfford ? '#5a2d0c' : '#998877'
+        }).setOrigin(0.5);
+        const cl = this.add.text(0, 15, `🪙${cost.toLocaleString()}`, {
+            font: 'bold 16px sans-serif', color: canAfford ? '#5a2d0c' : '#aa9988'
+        }).setOrigin(0.5);
+        btn.add([sg, tg, bl, cl]);
+        btn.setInteractive(new Phaser.Geom.Rectangle(-btnW / 2, -btnH / 2, btnW, btnH + 5), Phaser.Geom.Rectangle.Contains);
+        btn.on('pointerdown', () => btn.setScale(0.95));
+        btn.on('pointerout',  () => btn.setScale(1));
+        btn.on('pointerup',   () => { btn.setScale(1); this._tryLevelUpWorker(wdef.id); });
+        row.add(btn);
+
+        return row;
+    }
+
+    // 고용/레벨업 시도 → 성공 시 패널 새로고침(레벨/비용/수입 반영)
+    _tryLevelUpWorker(id) {
+        const ok = this.autoDigManager.levelUp(id);
+        if (ok) {
+            if (this.soundManager && this.soundManager.playUpgradeSound) this.soundManager.playUpgradeSound();
+            else if (this.soundManager) this.soundManager.playCoinSound();
+            this.refreshAutoDigBadge();
+            if (this.coinText) this.coinText.setText(`🪙 ${this.currencyManager.coin}`);
+            // 패널 새로고침 (닫고 다시 열어 숫자 갱신)
+            this.closeAutoDigPanel();
+            this.openAutoDigPanel();
+        } else {
+            this.cameras.main.shake(140, 0.004);   // 코인 부족 → 가볍게 흔들기
+        }
+    }
+
+    // 레벨 5+ 인부가 있으면 랜덤 번아웃 말풍선 (공유 포인트)
+    maybeShowWorkerBurnout(panel, pw, ph) {
+        const eligible = WORKERS.filter(w => this.autoDigManager.getLevel(w.id) >= 5);
+        if (eligible.length === 0) return;
+        const wdef = eligible[Math.floor(Math.random() * eligible.length)];
+        const line = wdef.burnoutLines[Math.floor(Math.random() * wdef.burnoutLines.length)];
+
+        const bubbleY = ph / 2 - 116;
+        const bubble = this.add.container(0, bubbleY);
+        const text = this.add.text(0, 0, `${wdef.emoji} 💬 "${line}"`, {
+            font: 'italic bold 20px sans-serif', color: '#5a2d0c',
+            backgroundColor: '#fff8e0', padding: { x: 18, y: 10 },
+            align: 'center'
+        }).setOrigin(0.5);
+        bubble.add(text);
+        panel.add(bubble);
+        // 살짝 통통 (만화 톤)
+        bubble.setScale(0.8);
+        this.tweens.add({ targets: bubble, scale: 1, duration: 220, ease: 'Back.out' });
+    }
+
+    closeAutoDigPanel() {
+        if (this.autoDigOverlay) { this.autoDigOverlay.destroy(); this.autoDigOverlay = null; }
+        if (this.autoDigPanel) {
+            this.tweens.killTweensOf(this.autoDigPanel);
+            this.autoDigPanel.destroy();
+            this.autoDigPanel = null;
+        }
+        this.autoDigPanelOpen = false;
+    }
+
     updateHUD() {
         this.coinText.setText(`🪙 ${this.currencyManager.coin}`);
         this.diamondText.setText(`💎 ${this.currencyManager.diamond}`);
