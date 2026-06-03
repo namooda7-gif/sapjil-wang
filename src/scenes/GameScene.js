@@ -650,6 +650,27 @@ export default class GameScene extends Phaser.Scene {
         this.holeBottomPaddingRatio = this.measureBottomPaddingRatio('hole') || 0.109;
         this.holeTopPaddingRatio    = this.measureTopPaddingRatio('hole')    || 0.107;
 
+        // ━━ 정렬 확인선 디버그 오버레이 (2026-06-03 처방 3, 사장님 승인) ━━
+        //   URL에 ?debug=1 있으면 활성 (키보드 토글 X — 폰 크롬 테스트라 입력 불가).
+        //   surfaceY(지표면)·발라인·굴내부top·굴내부bottom 4개 가로선 + px 라벨.
+        //   레벨별 스크린샷 1장으로 정렬 검증 → 추측-푸시 루프 종료용.
+        this._debugAlign = (typeof window !== 'undefined'
+            && typeof window.location !== 'undefined'
+            && /[?&]debug=1\b/.test(window.location.search || ''));
+        if (this._debugAlign) {
+            this._debugGfx = this.add.graphics().setDepth(9999);
+            this._debugLabels = [];
+            for (let i = 0; i < 4; i++) {
+                this._debugLabels.push(
+                    this.add.text(0, 0, '', {
+                        font: 'bold 18px monospace', color: '#ffffff',
+                        stroke: '#000', strokeThickness: 4
+                    }).setOrigin(0, 0.5).setDepth(10000)
+                );
+            }
+            console.log('[debug align] ?debug=1 감지 → 정렬 확인선 ON');
+        }
+
         // 흙더미 좌/우 (mound_right.png, depth 11 = 캐릭터(10)보다 앞)
         // 캐릭터 발 앞쪽에 쌓이는 입체감 → 진짜 땅속에 파묻힌 느낌
         this.leftMound = this.add.image(this.character.x, this.character.y, 'mound_right')
@@ -3367,6 +3388,11 @@ export default class GameScene extends Phaser.Scene {
 
         if (this.digCount <= 0) {
             this.holeImage.setVisible(false);
+            // 굴 없으면 확인선도 숨김 (이전 레이어 잔상 방지)
+            if (this._debugAlign && this._debugGfx) {
+                this._debugGfx.clear();
+                if (this._debugLabels) this._debugLabels.forEach(l => l.setVisible(false));
+            }
             return;
         }
 
@@ -3388,8 +3414,13 @@ export default class GameScene extends Phaser.Scene {
         const surfaceTexY = (this.currentSurfaceTextureY != null) ? this.currentSurfaceTextureY : SURFACE_TEXTURE_Y;
         const surfaceY  = (surfaceTexY - bgScrollY) * tileScale;
 
-        // 구덩이 바닥 = 캐릭터 발 + HOLE_Y_OFFSET (살짝 아래)
-        const holeBottomY = this.character.y + HOLE_Y_OFFSET;
+        // ━━ 구덩이 바닥 = "보이는 발 라인"에 앵커 (2026-06-03 처방 B) ━━
+        //   character.y = PNG 이미지 맨아래(투명여백 포함). 보이는 발은 그보다
+        //   (현재 텍스처 하단여백비율 × displayHeight)만큼 위 → 그 라인에 굴 바닥 정렬.
+        //   이전엔 image bottom(character.y)에 붙여서, dig 상태(여백 7.2%)일 때
+        //   발이 굴 바닥보다 ~28px 위로 떠 보였음("파내려갈 때 발-굴바닥 어긋남").
+        const footPadPx   = this.getCharacterBottomPadRatio() * this.character.displayHeight;
+        const holeBottomY = this.character.y - footPadPx + HOLE_Y_OFFSET;
 
         // ━━ surfaceY 기준 직접 anchored (2026-05-11, 2차 수정) ━━
         //   1차(top만 perception): 사장님 보고 "상단 OK, 바닥-발 어긋남"
@@ -3414,16 +3445,50 @@ export default class GameScene extends Phaser.Scene {
         // origin (0.5, 1.0) → holeImage.y = 이미지 바닥(투명 padding 포함) 픽셀 좌표
         // hole 내부 상단을 surfaceY에 anchor → 바닥은 innerR 수식으로 holeBottomY 자동 정렬
         this.holeImage.y = surfaceY + h * (1 - topR - topP);
+
+        // ━━ 정렬 확인선 (?debug=1) ━━
+        //   설계상 굴내부top == surfaceY, 굴내부bottom == footLineY(=holeBottomY) 여야 함.
+        //   4선이 2쌍으로 겹쳐 보이고, 초록선이 지표면 텍스처에, 청록선이 발끝에 닿으면 정렬 OK.
+        if (this._debugAlign && this._debugGfx) {
+            const holeTopY = this.holeImage.y - h * (1 - topR - topP);   // 굴 내부 상단 (=surfaceY)
+            const holeBotY = this.holeImage.y - h * (botR + botP);       // 굴 내부 바닥 (=holeBottomY)
+            const footLineY = holeBottomY;                                // 보이는 발 라인
+            const padPct = (this.getCharacterBottomPadRatio() * 100).toFixed(1);
+            const lines = [
+                { y: surfaceY,  c: 0x00ff66, t: `지표면 surfaceY=${Math.round(surfaceY)} (texRow ${Math.round(this.currentSurfaceTextureY != null ? this.currentSurfaceTextureY : SURFACE_TEXTURE_Y)})` },
+                { y: holeTopY,  c: 0xffe000, t: `굴top=${Math.round(holeTopY)}` },
+                { y: footLineY, c: 0x00e5ff, t: `발라인 footY=${Math.round(footLineY)} (여백 ${padPct}%)` },
+                { y: holeBotY,  c: 0xff44cc, t: `굴bottom=${Math.round(holeBotY)}` },
+            ];
+            const sw = this.cameras.main.width;
+            this._debugGfx.clear();
+            lines.forEach((ln, i) => {
+                this._debugGfx.lineStyle(2, ln.c, 0.95);
+                this._debugGfx.beginPath();
+                this._debugGfx.moveTo(0, ln.y);
+                this._debugGfx.lineTo(sw, ln.y);
+                this._debugGfx.strokePath();
+                const lbl = this._debugLabels[i];
+                if (lbl) {
+                    lbl.setText(ln.t).setColor('#ffffff');
+                    // 라벨 좌우 번갈아 배치 → 선이 겹쳐도 텍스트는 안 겹침
+                    lbl.x = (i % 2 === 0) ? 8 : sw * 0.46;
+                    lbl.y = ln.y;
+                    lbl.setVisible(true);
+                }
+            });
+        }
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-    // 레이어 배경의 지표면 row 자동 측정 (brightness drop detection) — 2026-05-11 추가
-    //   원리: 각 row의 평균 brightness 계산 → window 30 row 전후 평균 차이 최대인 row
-    //         (지상=밝음, 지하=어두움 가정에서 가장 큰 어두워짐 변화점)
+    // 레이어 배경의 지표면 row 자동 측정 (brightness drop detection) — 2026-06-03 재설계
+    //   원리: 각 row의 평균 brightness 계산 → window 30 row 전후 평균 차이(=어두워짐)
+    //         가 "타당한 띠 구간 [h×0.28, h×0.40]" 안에서 최대인 row (지상→지하 경계)
+    //   띠 제한 이유: 전 구간 검색은 천장(위)·지층(아래) false positive를 못 막음 (실패 history)
     //   사용: loadLayer에서 1회 측정, this.currentSurfaceTextureY에 캐싱
     //         자산이 가정과 다르면 LAYER_SURFACE_Y_OVERRIDE 맵으로 수동 보정
     //   비용: 한 번에 720×2580 픽셀 스캔 → 모바일에서도 수십 ms 수준 (loadLayer 시 1회)
-    //   실패: null 반환 → 폴백 SURFACE_TEXTURE_Y
+    //   실패: null 반환 → 폴백 SURFACE_TEXTURE_Y(903, 띠 안)
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     measureSurfaceRow(textureKey) {
         if (!this.textures.exists(textureKey)) return null;
@@ -3450,35 +3515,35 @@ export default class GameScene extends Phaser.Scene {
                 rowB[y] = sum / w;
             }
 
-            // 2026-05-11 2차 강화: 사장님 보고 layer_004(찜질방) 굴이 지표면 위로 솟음
-            //   원인 가설: 찜질방 자산은 천장-방, 방-바닥 등 여러 brightness drop 존재
-            //              "max drop"이 천장-방 경계(더 위 row)를 surface로 오인
-            //   처방: "deepest qualifying drop" — drop >= maxDrop × 0.5 중 가장 깊은 row
-            //         → 자산 구조상 가장 아래쪽 큰 drop이 실제 surface일 가능성
+            // 2026-06-03 3차 재설계: 오프라인 측정으로 두 이전 휴리스틱 실패 원인 확정
+            //   - "max drop 단독"(전 구간): layer_004(찜질방) 천장-방 경계를 surface로 오인
+            //   - "deepest qualifying drop"(전 구간, 4차 푸시 93d0f9f): 지하 지층 밝기변화를
+            //     surface로 오인 (layer 001/003/004/006 모두 1300+ row로 잘못 검출)
+            //   둘 다 공통 결함 = 검색 범위에 띠 제한이 없었음.
+            //   처방 A: "타당한 띠 구간" [h×0.28, h×0.40] 안에서만 단순 max-drop(argmax).
+            //     근거: 설계 surface 903 ≈ h×0.35. 오프라인 측정 결과 6개 레이어 모두
+            //           이 띠 안에서 824~891로 일관, 천장(427)·지층(1300+) 둘 다 자동 배제.
+            //     h=2580 → 띠[722, 1032]. 측정 실패(maxDrop<8) 시 null → 폴백 903(=띠 안).
             const win = 30;
-            const yMin = Math.max(win, 200);
-            const yMax = Math.min(h - win, Math.floor(h * 0.6));
+            const bandTop = Math.floor(h * 0.28);
+            const bandBot = Math.floor(h * 0.40);
+            const yMin = Math.max(win, bandTop);
+            const yMax = Math.min(h - win, bandBot);
+            if (yMax <= yMin) return null;
 
-            // 1차: 모든 drop 계산 + maxDrop 확인
-            const drops = new Float32Array(h);
-            let maxDrop = 0;
+            // 띠 구간 안에서 brightness drop 최대인 row (argmax)
+            let bestRow = -1, maxDrop = 0;
             for (let y = yMin; y < yMax; y++) {
                 let before = 0, after = 0;
                 for (let i = 0; i < win; i++) {
                     before += rowB[y - win + i];
                     after  += rowB[y + i];
                 }
-                drops[y] = (before - after) / win;
-                if (drops[y] > maxDrop) maxDrop = drops[y];
+                const drop = (before - after) / win;
+                if (drop > maxDrop) { maxDrop = drop; bestRow = y; }
             }
-            if (maxDrop < 8) return null;
-
-            // 2차: drop >= max × 0.5 중 가장 깊은 row (아래에서 위로 스캔)
-            const threshold = Math.max(8, maxDrop * 0.5);
-            for (let y = yMax - 1; y >= yMin; y--) {
-                if (drops[y] >= threshold) return y;
-            }
-            return null;
+            if (maxDrop < 8 || bestRow < 0) return null;
+            return bestRow;
         } catch (e) {
             console.warn(`[surface row] 측정 실패 (${textureKey}):`, e);
             return null;
@@ -3550,6 +3615,25 @@ export default class GameScene extends Phaser.Scene {
             console.warn(`[hole padding] 측정 실패 (${textureKey}):`, e);
         }
         return 0;
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 현재 캐릭터 텍스처의 하단 투명여백 비율 (0~1) — 2026-06-03 추가 (처방 B)
+    //   배경: 캐릭터 origin (0.5,1) → character.y = PNG 이미지 맨아래.
+    //         하지만 상태별 PNG 하단 투명여백이 제각각(오프라인 측정: idle 1.2% /
+    //         dig 7.2% / dig_hard 5.5%)이라, "보이는 발 라인"이 image bottom보다
+    //         (여백비율 × displayHeight)만큼 위에 있음.
+    //   drawHole이 이 값으로 굴 바닥을 "보이는 발 라인"에 정확히 앵커.
+    //   ★ getImageData는 무거우므로 텍스처키별 1회 측정 후 캐싱 (drawHole은 매 프레임) ★
+    //   실패/미측정 시 0 → 기존(image bottom 기준)과 동일 동작 (안전)
+    getCharacterBottomPadRatio() {
+        if (!this.character || !this.character.texture) return 0;
+        const key = this.character.texture.key;
+        if (!this._charBottomPadCache) this._charBottomPadCache = {};
+        if (this._charBottomPadCache[key] == null) {
+            this._charBottomPadCache[key] = this.measureBottomPaddingRatio(key) || 0;
+        }
+        return this._charBottomPadCache[key];
     }
 
     // 두 색상 보간 (0xRRGGBB hex)
@@ -4224,7 +4308,10 @@ export default class GameScene extends Phaser.Scene {
         if (!this.character) return;
 
         if (this.holeImage) {
-            this.holeImage.setPosition(this.character.x, this.character.y + HOLE_Y_OFFSET);
+            // 굴 바닥은 "보이는 발 라인"에 앵커 (처방 B) — drawHole이 매 프레임 Y를
+            // 재계산하지만, 캐릭터 y 변경(레이어 로드 등) 직후 한 프레임 일관성 위해 동일식 적용
+            const footPadPx = this.getCharacterBottomPadRatio() * this.character.displayHeight;
+            this.holeImage.setPosition(this.character.x, this.character.y - footPadPx + HOLE_Y_OFFSET);
         }
         // 흙더미 위치는 drawMounds에서 갱신 (스케일 변화 따라가야 하므로)
         // 단 Y 기준점만 character.y로 동기화 - drawMounds가 X offset 더해줌
