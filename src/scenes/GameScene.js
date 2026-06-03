@@ -2435,6 +2435,10 @@ export default class GameScene extends Phaser.Scene {
         banner.add([bannerBg, bannerEmoji, bannerTxt, bannerArrow]);
         banner.setScale(0.5).setAlpha(0);
         this.tweens.add({ targets: banner, scale: 1, alpha: 1, duration: 220, ease: 'Back.out' });
+        // 2026-06-04 드링크 등장음 (배너 뜰 때 = "나올때"). 사장님 녹음 우선, 없으면 합성 폴백.
+        if (this.soundManager && this.soundManager.playDrinkAppearSound) {
+            this.soundManager.playDrinkAppearSound();
+        }
         // 화살표 깜빡깜빡 (방향 안내)
         this.tweens.add({
             targets: bannerArrow,

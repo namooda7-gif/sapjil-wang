@@ -194,12 +194,26 @@ const DIG_SAMPLE_MAP = {
 };
 
 // 장애물 격파 히트음 — 녹음 있는 타입만 (나머지는 합성 폴백)
+//   2026-06-04: 사장님 녹음으로 iron/crystal/ice/pot 추가 → 8종 전부 녹음음으로 통일
+//   (iron 장애물 = 사장님 표현 "steel". crystal = "diamond". OBSTACLE_TYPES 키 기준 매핑)
 const OBSTACLE_SAMPLE_MAP = {
-    rock:  ['sfx_ob_rock_1', 'sfx_ob_rock_2'],
-    bone:  ['sfx_ob_bone_1', 'sfx_ob_bone_2'],
-    skull: ['sfx_ob_bone_1', 'sfx_ob_bone_2'],                   // 두개골 ≈ 뼈
-    root:  ['sfx_ob_root_1', 'sfx_ob_root_2']
+    rock:    ['sfx_ob_rock_1', 'sfx_ob_rock_2'],
+    bone:    ['sfx_ob_bone_1', 'sfx_ob_bone_2'],
+    skull:   ['sfx_ob_bone_1', 'sfx_ob_bone_2'],                 // 두개골 ≈ 뼈
+    root:    ['sfx_ob_root_1', 'sfx_ob_root_2'],
+    iron:    ['sfx_ob_steel_1', 'sfx_ob_steel_2', 'sfx_ob_steel_3'], // 철판(3종)
+    crystal: ['sfx_ob_crystal_1'],                               // 수정(1종 — 변주 원하면 2번째 녹음 추가)
+    ice:     ['sfx_ob_ice_1', 'sfx_ob_ice_2'],                   // 얼음(2종)
+    pot:     ['sfx_ob_pot_1', 'sfx_ob_pot_2']                    // 항아리(2종)
 };
+
+// 보상음(보물 획득) 녹음 3종 — playTreasureSound에서 믹스 (없으면 등급별 합성 폴백)
+const REWARD_SAMPLE_KEYS = ['sfx_reward_1', 'sfx_reward_2', 'sfx_reward_3'];
+// 에너지 드링크 등장음 2종 (배너 뜰 때) / 마실 때 외침 2종
+const DRINK_APPEAR_KEYS  = ['sfx_drink_appear_1', 'sfx_drink_appear_2'];
+const DRINK_SHOUT_KEYS   = ['sfx_drink_shout_1', 'sfx_drink_shout_2'];
+// 장애물 완파 임팩트 녹음 8종 — playObstacleBreakSound에서 믹스 (없으면 합성 빡쫙 폴백)
+const OBSTACLE_BREAK_KEYS = ['sfx_break_1','sfx_break_2','sfx_break_3','sfx_break_4','sfx_break_5','sfx_break_6','sfx_break_7','sfx_break_8'];
 
 const DIG_SFX_VOLUME = 0.9;   // 녹음 삽질음 기본 볼륨 (레이어링 시 클리핑 방지)
 
@@ -454,6 +468,10 @@ export default class SoundManager {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     playTreasureSound(rarity) {
         if (sfxState.muted) return;
+        // 2026-06-04 사장님 녹음 보상음 우선 (3종 믹스). 로드 성공 시 합성 멜로디 대체.
+        //   장애물 히트음과 동일 패턴 — 녹음 없으면 아래 등급별 합성으로 폴백.
+        //   (legendary 추가 연출 playJackpotMelody는 GameScene에서 별도 호출되어 유지됨)
+        if (this._playSampleMix(REWARD_SAMPLE_KEYS, { baseVolume: 0.9, detuneRange: 80, maxLayers: 1 })) return;
         switch (rarity) {
             case 'legendary': this._treasureLegendary(); break;
             case 'epic':      this._treasureEpic(); break;
@@ -869,20 +887,27 @@ export default class SoundManager {
     playObstacleBreakSound() {
         if (sfxState.muted) return;
 
-        // ━━ "빡!" 초기 어택 (가장 강한 한 방, 0~60ms) ━━
-        tone({ freq: 1200, freqEnd: 300, duration: 0.06, type: 'square',   volume: 1.0 });
-        noise({ duration: 0.06, volume: 1.0 });
+        // 2026-06-04 사장님 녹음 파괴음 8종 우선 (2개 겹쳐 두툼한 임팩트).
+        //   로드 성공 시 합성 "빡쫙" 임팩트 대체 — 보너스 chime은 아래에서 항상 재생.
+        const usedSample = this._playSampleMix(OBSTACLE_BREAK_KEYS, { baseVolume: 1.0, detuneRange: 120, maxLayers: 2 });
 
-        // ━━ "쫙!!" 균열 (40~240ms) ━━
-        tone({ freq: 500, freqEnd: 80,   duration: 0.22, type: 'sawtooth', volume: 1.0,  startAt: 0.04 });
-        noise({ duration: 0.20, volume: 0.95, startAt: 0.05 });
+        if (!usedSample) {
+            // ━━ 폴백: 합성 임팩트 ━━
+            // ━━ "빡!" 초기 어택 (가장 강한 한 방, 0~60ms) ━━
+            tone({ freq: 1200, freqEnd: 300, duration: 0.06, type: 'square',   volume: 1.0 });
+            noise({ duration: 0.06, volume: 1.0 });
 
-        // ━━ sub-boom (땅 흔들림, 20~520ms) ━━
-        tone({ freq: 80,  freqEnd: 25,   duration: 0.50, type: 'sine',     volume: 1.0,  startAt: 0.02 });
-        tone({ freq: 50,  freqEnd: 20,   duration: 0.55, type: 'triangle', volume: 0.7,  startAt: 0.04 });
+            // ━━ "쫙!!" 균열 (40~240ms) ━━
+            tone({ freq: 500, freqEnd: 80,   duration: 0.22, type: 'sawtooth', volume: 1.0,  startAt: 0.04 });
+            noise({ duration: 0.20, volume: 0.95, startAt: 0.05 });
 
-        // ━━ 잔향 노이즈 (잔해 흩어짐, 220~440ms) ━━
-        noise({ duration: 0.22, volume: 0.6,  startAt: 0.22 });
+            // ━━ sub-boom (땅 흔들림, 20~520ms) ━━
+            tone({ freq: 80,  freqEnd: 25,   duration: 0.50, type: 'sine',     volume: 1.0,  startAt: 0.02 });
+            tone({ freq: 50,  freqEnd: 20,   duration: 0.55, type: 'triangle', volume: 0.7,  startAt: 0.04 });
+
+            // ━━ 잔향 노이즈 (잔해 흩어짐, 220~440ms) ━━
+            noise({ duration: 0.22, volume: 0.6,  startAt: 0.22 });
+        }
 
         // ━━ 보너스 chime (보물 확률 +20% 알림, 440ms~) ━━
         tone({ freq: 800,  duration: 0.10, type: 'sine', volume: 0.5,  startAt: 0.44 });
@@ -986,6 +1011,9 @@ export default class SoundManager {
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
     playDrinkCatchSound(rarity = 'common') {
         if (sfxState.muted) return;
+        // 2026-06-04 사장님 녹음 "외침" 2종 중 1개를 캐치 순간 겹쳐 재생 (캐릭터 기합).
+        //   합성 "꿀꺽"+등급 chime 위에 레이어 → 녹음 없으면 합성만 (자동 폴백).
+        this._playSampleMix(DRINK_SHOUT_KEYS, { baseVolume: 0.9, detuneRange: 60, maxLayers: 1 });
         // "꿀꺽" - 낮은 sine 빠른 디센드 + 노이즈 살짝
         tone({ freq: 350, freqEnd: 120, duration: 0.18, type: 'sine', volume: 0.6 });
         noise({ duration: 0.06, volume: 0.4, startAt: 0.05 });
@@ -1012,6 +1040,18 @@ export default class SoundManager {
             // 마무리 sparkle
             tone({ freq: 1800, duration: 0.4, type: 'sine', volume: 0.35, startAt: 0.55 });
         }
+    }
+
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    // 17-b) 에너지 드링크 등장 — "드링크 온다!" 배너 뜰 때 (2026-06-04 사장님 녹음)
+    //   녹음 등장음 2종 중 1개 재생. 없으면 짧은 상승 alert 합성 폴백.
+    // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    playDrinkAppearSound() {
+        if (sfxState.muted) return;
+        if (this._playSampleMix(DRINK_APPEAR_KEYS, { baseVolume: 0.95, detuneRange: 60, maxLayers: 1 })) return;
+        // 폴백: 짧은 2음 상승 alert (시선 유도)
+        tone({ freq: 700,  duration: 0.10, type: 'square', volume: 0.5 });
+        tone({ freq: 1100, duration: 0.16, type: 'square', volume: 0.5, startAt: 0.10 });
     }
 
     // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

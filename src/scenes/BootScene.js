@@ -108,6 +108,31 @@ export default class BootScene extends Phaser.Scene {
         this.load.audio('sfx_ob_bone_2', `${SFX}/dig_obstacle__bone2.mp3`);
         this.load.audio('sfx_ob_root_1', `${SFX}/obstacle_root1.mp3`);
         this.load.audio('sfx_ob_root_2', `${SFX}/dig_obstacle__root2.mp3`);
+        // 2026-06-04 추가 장애물 격파 히트음 (사장님 녹음): 철판/수정/얼음/항아리
+        this.load.audio('sfx_ob_steel_1',   `${SFX}/dig_ocstacle_steel1.mp3`);
+        this.load.audio('sfx_ob_steel_2',   `${SFX}/dig_ocstacle_steel2.mp3`);
+        this.load.audio('sfx_ob_steel_3',   `${SFX}/dig_ocstacle_steel3.mp3`);
+        this.load.audio('sfx_ob_crystal_1', `${SFX}/dig_ocstacle_crystal1.mp3`);
+        this.load.audio('sfx_ob_ice_1',     `${SFX}/dig_ocstacle_ice1.mp3`);
+        this.load.audio('sfx_ob_ice_2',     `${SFX}/dig_ocstacle_ice2.mp3`);
+        this.load.audio('sfx_ob_pot_1',     `${SFX}/dig_ocstacle_pot1.mp3`);
+        this.load.audio('sfx_ob_pot_2',     `${SFX}/dig_ocstacle_pot2.mp3`);
+
+        // 2026-06-04 보상음(보물 획득) — 녹음 3종 믹스
+        this.load.audio('sfx_reward_1', `${SFX}/reward_1.mp3`);
+        this.load.audio('sfx_reward_2', `${SFX}/reward_2.mp3`);
+        this.load.audio('sfx_reward_3', `${SFX}/reward_3.mp3`);
+
+        // 2026-06-04 에너지 드링크 — 등장음 2종 + 마실 때 외침 2종
+        this.load.audio('sfx_drink_appear_1', `${SFX}/energy_drink_1.mp3`);
+        this.load.audio('sfx_drink_appear_2', `${SFX}/energy_drink_2.mp3`);
+        this.load.audio('sfx_drink_shout_1',  `${SFX}/energy_shout_1.mp3`);
+        this.load.audio('sfx_drink_shout_2',  `${SFX}/energy_shout_2.mp3`);
+
+        // 2026-06-04 장애물 파괴(완파) — 녹음 8종 믹스 (빡쫙 임팩트)
+        for (let i = 1; i <= 8; i++) {
+            this.load.audio(`sfx_break_${i}`, `${SFX}/destroy_${i}.mp3`);
+        }
 
         // 누락된 에셋이 있어도 무시하고 넘어감 (조용히 fail)
         // - audio: BGM 누락 → 무음
